@@ -27,3 +27,26 @@
 .presentation-transport{z-index:22}.presentation-focus .pdf-panel{height:auto}.workspace:has(.slide-item):not(.presentation-focus) .pdf-panel{height:calc(100dvh - 300px)}
 .room-shortcuts-button{display:flex;align-items:center;gap:6px;font-size:11px;color:#6e8aa1;min-height:36px;padding:5px 8px;border:1px solid #e0e7ed;border-radius:6px}.room-shortcuts-button small{background:#e8eff4;border-radius:4px;padding:2px 5px;font-size:9px}.shortcut-dialog{width:540px}.shortcut-list{display:flex;flex-direction:column;gap:7px;margin:22px 0;max-height:240px;overflow:auto}.shortcut-row{display:flex;align-items:center;gap:2px;background:#f3f6f8;border:1px solid #e1e7ec;border-radius:7px;padding:7px}.shortcut-enter{display:flex;align-items:center;gap:12px;flex:1;text-align:left;min-width:0;padding:5px}.shortcut-enter>span:nth-child(2){flex:1;min-width:0}.shortcut-enter strong{display:block;font-size:12px;overflow-wrap:anywhere}.shortcut-enter small{display:block;font-size:9px;color:#95a6b6;margin-top:5px;letter-spacing:1px}.shortcut-glyph{width:36px;height:36px;display:grid;place-items:center;border-radius:50%;background:#dcebee;color:#638d9b}.shortcut-empty{font-size:11px!important;padding:10px 0!important;margin:0!important;color:#95a6b5}.shortcut-create{border-top:1px solid #e1e6ec;padding-top:16px}.shortcut-create form>label{margin-top:16px}.shortcut-create select{display:block;margin-top:8px;border:1px solid #d9e2e9;border-radius:6px;padding:11px;width:100%;background:white;font:inherit;color:#526f86}.shortcut-placement{font-size:10px!important;line-height:1.8!important;color:#94a5b4!important;margin:12px 0 16px!important}.shortcut-create>small{display:block;line-height:1.8;color:#a0adba;font-size:9px;margin-top:12px}.shortcut-create .studio-tabs{justify-content:space-between;gap:2px}.shortcut-create .studio-tabs button{font-size:10px}.shortcut-row>.icon-button{min-width:34px;min-height:36px}
 @media(max-width:700px){.room-shortcuts-button{min-width:36px;justify-content:center;padding:5px}.room-shortcuts-button>span{display:none}.room-shortcuts-button small{font-size:8px;padding:2px 3px}.top-actions{gap:6px}.shortcut-dialog{padding:25px 20px}.shortcut-create .studio-tabs button{font-size:9px}.shortcut-list{max-height:200px}.shortcut-enter strong{font-size:11px}.shortcut-enter{gap:9px}}
+
+/* Cardboard lens fit is configured before the phone goes into the viewer. */
+.cardboard-fit{padding:18px;border:1px solid #dce6ee;border-radius:8px;background:#f7f9fb;margin:18px 0}
+.cardboard-fit-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.cardboard-fit-heading h3{font-size:14px;color:#344b63}
+.cardboard-fit-heading button{font-size:12px;text-decoration:underline;min-height:40px;padding:8px}
+.cardboard-fit>p{font-size:12px;line-height:1.7;margin:8px 0 14px;color:#61758a}
+.cardboard-fit-preview{display:block;width:100%;max-width:440px;height:auto;margin:0 auto;background:#000;border-radius:8px}
+.cardboard-fit-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:18px}
+.cardboard-fit-controls label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#344b63}
+.cardboard-fit-controls label>span{display:flex;justify-content:space-between;gap:10px}
+.cardboard-fit-controls output{font-variant-numeric:tabular-nums;color:#526e86}
+.cardboard-fit-controls input[type=range]{width:100%;min-height:44px;margin:0;accent-color:#3b7085;cursor:pointer}
+.cardboard-fit-controls small{font-size:11px;line-height:1.5;color:#61758a}
+.cardboard-fit>p.cardboard-fit-note{font-size:11px;margin-bottom:0}
+body:has(.exit-stereo) .storage-preview{display:none}
+.storage-preview+.workspace:has(.exit-stereo){height:100dvh}
+.workspace:has(.exit-stereo)>.stage{background:#000}
+.workspace:has(.exit-stereo) .exit-stereo{top:8px!important;right:8px;background:#000;color:#cbd4dc;padding:8px;min-height:40px}
+.stereo-alignment{position:absolute;inset:0;pointer-events:none;z-index:2}
+.stereo-alignment:before,.stereo-alignment:after{content:'';position:absolute;left:calc(50% - 1px);width:2px;height:14px;background:#d8dfe5}
+.stereo-alignment:before{top:0}.stereo-alignment:after{bottom:0}
+@media(max-width:600px){.cardboard-fit{padding:14px}.cardboard-fit-controls{grid-template-columns:1fr;gap:12px}.cardboard-fit-preview{height:auto}}

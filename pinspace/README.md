@@ -32,6 +32,8 @@ The shared voice relay sends short 16 kHz PCM packets over HTTPS and retains onl
 
 Room management is tied to a random guest credential in the creator's browser. Clearing browser storage loses those rights. On a new hostname each device receives a new credential. Rooms and uploaded content are public. Speaker notes are stripped from audience API responses. Objects and rooms support recoverable removal.
 
+Cardboard uses two circular eye windows with a black lens mask, a center alignment mark and a dedicated 80° default field of view. In VR setup, Lens fit adjusts screen-space lens spacing, window size and field of view; settings are saved per browser/device. The scene and mask share the same eye layout and square projection, including on wide phones. Align the phone with the viewer’s center divider and tune the fit before inserting it. This manual fit does not scan Cardboard QR profiles or apply viewer-specific radial distortion correction. Quest/WebXR uses its headset-provided projection and is unchanged.
+
 Cardboard: gaze at a destination/control and tap. The menu retains a fixed heading instead of rotating away from gaze. Hold a tap for around one second, then release, to place the menu in front of the current view; Center resets the heading. The fixed in-world keyboard includes digits for room codes. Real device testing remains necessary.
 
 ## Verification
@@ -39,3 +41,4 @@ Cardboard: gaze at a destination/control and tap. The menu retains a fixed headi
 `npm run check` checks TypeScript. `npm test` covers navigation math, gaze targeting, presentation validation and privacy, PCM worklet resampling, and the real Node HTTP API. The server test exercises uploads, shared presentation/shortcuts/notes, cross-guest authorization, audio packet relay/cleanup, origin checks, and persistence across restart.
 
 Vendor Draco and PDF worker files are copied from locked npm dependencies during the build. User data, credentials, dependencies and built files are not committed.
+

@@ -1,5 +1,6 @@
 import * as T from 'three';
 import { DwellSelector, readStick, tapAction, GazeMenuAnchor } from './vr-controls';
+import { cardboardLayout, loadCardboard, normalizeCardboard, type CardboardSettings } from './cardboard';
 import { SVGRenderer, SVGObject } from 'three/addons/renderers/SVGRenderer.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -69,6 +70,9 @@ export class Viewer {
     observer: ResizeObserver;
     down = { x: 0, y: 0, time: 0 };
     vrCam = new T.StereoCamera();
+    cardboardSettings = loadCardboard();
+    regularFov = 42;
+    cardboardMask: { scene: T.Scene; camera: T.Camera; material: T.ShaderMaterial; geometry: T.PlaneGeometry } | null = null;
     disposed = false;
     lastNotes = '';
     lastPeers = '';
@@ -212,7 +216,7 @@ export class Viewer {
         const w = this.host.clientWidth, h = this.host.clientHeight;
         if (!w || !h)
             return;
-        this.camera.aspect = w / h;
+        this.camera.aspect = this.stereoscopic ? 1 : w / h;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(w, h);
         if (!this.isXR && !this.walking && !this.stereoscopic)
@@ -430,8 +434,11 @@ export class Viewer {
     async stereo(v: boolean) {
         if (this.fallback)
             throw Error('Cardboard needs WebGL. Open this site in a browser with hardware graphics enabled.');
-        this.vrCam.aspect = .5;
+        if (v && !this.stereoscopic) this.regularFov = this.camera.fov;
+        this.vrCam.aspect = 1;
         this.stereoscopic = v;
+        this.camera.fov = v ? this.cardboardSettings.fov : this.regularFov;
+        this.resize();
         this.menuAnchor.reset();
         this.reticle.visible = v;
         this.keyboard.visible = false;
@@ -462,6 +469,56 @@ export class Viewer {
             const o = screen.orientation as any;
             o?.unlock?.();
         }
+    }
+    setCardboardSettings(settings: CardboardSettings) {
+        this.cardboardSettings = normalizeCardboard(settings);
+        if (this.stereoscopic) {
+            this.camera.fov = this.cardboardSettings.fov;
+            this.camera.updateProjectionMatrix();
+        }
+    }
+    renderCardboard() {
+        const size = this.renderer.getSize(new T.Vector2());
+        const layout = cardboardLayout(size.x, size.y, this.cardboardSettings);
+        this.camera.updateMatrixWorld();
+        this.vrCam.update(this.camera);
+        // Clear the whole frame first so resized/moved windows leave no stale image.
+        this.renderer.setScissorTest(false);
+        this.renderer.setViewport(0, 0, size.x, size.y);
+        this.renderer.setClearColor(0x000000);
+        this.renderer.clear();
+        this.renderer.setClearColor('#edf0f3');
+        this.renderer.setScissorTest(true);
+        for (const [eye, camera] of [[layout.left, this.vrCam.cameraL], [layout.right, this.vrCam.cameraR]] as const) {
+            this.renderer.setScissor(eye.x, eye.y, eye.size, eye.size);
+            this.renderer.setViewport(eye.x, eye.y, eye.size, eye.size);
+            this.renderer.render(this.scene, camera);
+        }
+        this.renderer.setScissorTest(false);
+        this.renderer.setViewport(0, 0, size.x, size.y);
+        if (!this.cardboardMask) {
+            const material = new T.ShaderMaterial({
+                uniforms: { resolution: { value: new T.Vector2() }, centers: { value: new T.Vector3() }, radius: { value: 0 } },
+                vertexShader: 'varying vec2 uvMask; void main(){uvMask=uv; gl_Position=vec4(position.xy,0.0,1.0);}',
+                fragmentShader: `varying vec2 uvMask; uniform vec2 resolution; uniform vec3 centers; uniform float radius;
+                    void main(){vec2 p=uvMask*resolution; float d=min(length(p-vec2(centers.x,centers.z)),length(p-vec2(centers.y,centers.z)));
+                    gl_FragColor=vec4(0.0,0.0,0.0,smoothstep(max(0.0,radius-2.0),max(0.001,radius),d));}`,
+                transparent: true, depthTest: false, depthWrite: false, toneMapped: false,
+            });
+            const scene = new T.Scene(), geometry = new T.PlaneGeometry(2, 2);
+            const mesh = new T.Mesh(geometry, material);
+            mesh.frustumCulled = false;
+            scene.add(mesh);
+            this.cardboardMask = { scene, camera: new T.Camera(), material, geometry };
+        }
+        const { material, scene, camera } = this.cardboardMask;
+        material.uniforms.resolution.value.set(size.x, size.y);
+        material.uniforms.centers.value.set(layout.leftX, layout.rightX, layout.centerY);
+        material.uniforms.radius.value = layout.radius;
+        const autoClear = this.renderer.autoClear;
+        this.renderer.autoClear = false;
+        this.renderer.render(scene, camera);
+        this.renderer.autoClear = autoClear;
     }
     centerView() {
         this.menuAnchor.reset();
@@ -950,19 +1007,7 @@ export class Viewer {
             const hit = this.gazeHit();
             (this.reticle.material as T.MeshBasicMaterial).color.set(this.removeMode ? 0xc87870 : hit?.object.userData.action ? 0xe5b449 : this.placing ? 0xe5b449 : hit && this.walkable(hit) ? 0x4eae98 : 0x8298a9);
             this.reticle.scale.setScalar(hit?.object.userData.action ? 1.3 : 1);
-            const s = new T.Vector2();
-            this.renderer.getSize(s);
-            this.camera.updateMatrixWorld();
-            this.vrCam.update(this.camera);
-            this.renderer.setScissorTest(true);
-            this.renderer.setScissor(0, 0, s.x / 2, s.y);
-            this.renderer.setViewport(0, 0, s.x / 2, s.y);
-            this.renderer.render(this.scene, this.vrCam.cameraL);
-            this.renderer.setScissor(s.x / 2, 0, s.x / 2, s.y);
-            this.renderer.setViewport(s.x / 2, 0, s.x / 2, s.y);
-            this.renderer.render(this.scene, this.vrCam.cameraR);
-            this.renderer.setScissorTest(false);
-            this.renderer.setViewport(0, 0, s.x, s.y);
+            this.renderCardboard();
         }
         else
             this.renderer.render(this.scene, this.camera);
@@ -971,5 +1016,6 @@ export class Viewer {
         if (this.stereoscopic && !document.fullscreenElement)
             document.querySelector<HTMLButtonElement>('.exit-stereo')?.click();
     };
-    dispose() { this.renderer.domElement.removeEventListener('contextmenu',this.contextMenu); document.removeEventListener('fullscreenchange', this.fullscreenChanged); this.disposed = true; this.renderer.setAnimationLoop(null); this.observer.disconnect(); window.removeEventListener('keydown', this.keyDown); window.removeEventListener('keyup', this.keyUp); window.removeEventListener('blur', this.blur); window.removeEventListener('deviceorientation', this.onOrientation); this.clear(this.model); this.clear(this.pins); this.clear(this.avatars); this.clear(this.pdfGroup); this.clear(this.keyboard); this.clear(this.portals); this.clear(this.info); this.controls.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); }
+    dispose() { this.cardboardMask?.geometry.dispose(); this.cardboardMask?.material.dispose(); this.renderer.domElement.removeEventListener('contextmenu',this.contextMenu); document.removeEventListener('fullscreenchange', this.fullscreenChanged); this.disposed = true; this.renderer.setAnimationLoop(null); this.observer.disconnect(); window.removeEventListener('keydown', this.keyDown); window.removeEventListener('keyup', this.keyUp); window.removeEventListener('blur', this.blur); window.removeEventListener('deviceorientation', this.onOrientation); this.clear(this.model); this.clear(this.pins); this.clear(this.avatars); this.clear(this.pdfGroup); this.clear(this.keyboard); this.clear(this.portals); this.clear(this.info); this.controls.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); }
 }
+
