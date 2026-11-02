@@ -559,45 +559,159 @@
     }
   }
 
-  // Arrive in the centre aisle behind the benches, facing the stage. The spot is slightly random
-  // so people joining together don't stand inside each other.
+  // Arrive at the hall entrance facing in. The spot is slightly random so people joining
+  // together don't stand inside each other.
   function placeAtSpawn() {
     const rig = $('#rig').object3D;
-    rig.position.set(+(Math.random() * 1.6 - 0.8).toFixed(2), 0, +(7 + Math.random() * 1.5).toFixed(2));
+    rig.position.set(+(Math.random() * 2 - 1).toFixed(2), 0, +(11.8 + Math.random() * 1.4).toFixed(2));
     rig.rotation.set(0, 0, 0);
   }
 
-  // ---------------- the stage ----------------
-  // Stage top is 0.5 m high, 14 m wide, from z = -10 to -5.2. Uploads go here, facing the audience.
-  const STAGE = { y: 0.5, front: -5.2, back: -10, half: 7 };
-  function isOnStage(d) {
-    return d && Math.abs(d.p[1] - STAGE.y) < 0.05 && d.p[2] < STAGE.front && d.p[2] > STAGE.back && Math.abs(d.p[0]) < STAGE.half;
+  // ---------------- the exhibition hall ----------------
+  // 30 x 30 m hall. Four booths line each side wall (booth 1-4 left, 5-8 right), two round
+  // pedestals stand in the middle aisle for models, and the back wall has the notice board.
+  // Uploads go into a free booth or pedestal, facing the aisle.
+  const HALL = { half: 15, wallH: 7 };
+  const BOOTH_COLORS = ['#2e86ab', '#e4572e', '#3bb273', '#f3a712', '#8e44ad', '#16a085', '#d35400', '#c2185b'];
+  const BOOTHS = [];
+  [-9, -3, 3, 9].forEach((z, i) => BOOTHS.push({ n: i + 1, x: -13.6, z, ry: 90 }));
+  [-9, -3, 3, 9].forEach((z, i) => BOOTHS.push({ n: i + 5, x: 13.6, z, ry: -90 }));
+  const PEDESTALS = [{ x: 0, z: -4.5, top: 0.4 }, { x: 0, z: 3.5, top: 0.4 }];
+
+  // Where an exhibit sits in a booth: PDFs stand just in front of the booth wall, models further out.
+  function boothSpot(b, kind) {
+    const a = THREE.MathUtils.degToRad(b.ry);
+    const d = kind === 'pdf' ? 0.55 : 1.4;
+    return { p: [+(b.x + Math.sin(a) * d).toFixed(3), 0, +(b.z + Math.cos(a) * d).toFixed(3)], ry: b.ry, s: kind === 'pdf' ? 1.1 : undefined };
   }
-  // Find a free spot on stage. PDFs stand left and right of centre; models take the middle first.
-  function stageSpot(kind, excludeId) {
-    const slots = kind === 'model' ? [0, -4.3, 4.3] : [-4.3, 4.3, 0, -2.2, 2.2];
-    const taken = [...items.values()].filter((r) => r.data.id !== excludeId && isOnStage(r.data));
-    for (const x of slots) {
-      if (!taken.some((r) => Math.abs(r.data.p[0] - x) < 1.9)) {
-        return { p: [x, STAGE.y, kind === 'model' ? -7.4 : -8.3], ry: 0, s: kind === 'pdf' ? 1.8 : undefined };
+  function spotTaken(p, excludeId) {
+    return [...items.values()].some((r) => r.data.id !== excludeId && Math.hypot(r.data.p[0] - p[0], r.data.p[2] - p[2]) < 1.6);
+  }
+  function exhibitSpot(kind, excludeId) {
+    if (kind === 'model') {
+      for (const pd of PEDESTALS) {
+        const p = [pd.x, pd.top, pd.z];
+        if (!spotTaken(p, excludeId)) return { p, ry: 0, pedestal: true };
+      }
+    }
+    for (const b of BOOTHS) {
+      const spot = boothSpot(b, kind);
+      if (!spotTaken(spot.p, excludeId)) return spot;
+    }
+    return null;
+  }
+  // Is this object sitting in a booth or on a pedestal?
+  function exhibitOf(d) {
+    if (!d) return null;
+    for (const pd of PEDESTALS) if (Math.hypot(d.p[0] - pd.x, d.p[2] - pd.z) < 1.2 && Math.abs(d.p[1] - pd.top) < 0.05) return { pedestal: pd };
+    for (const b of BOOTHS) {
+      for (const k of ['pdf', 'model']) {
+        const sp = boothSpot(b, k).p;
+        if (Math.hypot(d.p[0] - sp[0], d.p[2] - sp[2]) < 1.2) return { booth: b };
       }
     }
     return null;
   }
-  function putOnStage(id) {
+  function fitPatchFor(rec) {
+    if (rec.data.kind !== 'model' || !rec.size) return null;
+    const footprint = Math.max(rec.size.x, rec.size.z);
+    const limit = 2.4; // fits a pedestal or booth
+    if (footprint * (rec.data.s || 1) > limit) return +(2.2 / footprint).toPrecision(4);
+    return null;
+  }
+  function putOnDisplay(id) {
     const rec = items.get(id);
     if (!rec) return;
-    const spot = stageSpot(rec.data.kind, id);
-    if (!spot) return toast('The stage is full. Move or delete something on it first.', 3500);
+    const spot = exhibitSpot(rec.data.kind, id);
+    if (!spot) return toast('All booths and pedestals are taken. Move or delete something first.', 3500);
     const patch = { p: spot.p, ry: spot.ry };
     if (spot.s && (rec.data.s || 1) < spot.s) patch.s = spot.s;
-    if (rec.data.kind === 'model' && rec.size) {
-      const maxDim = Math.max(rec.size.x, rec.size.z) * (rec.data.s || 1);
-      if (maxDim > 5) patch.s = +(4.5 / Math.max(rec.size.x, rec.size.z)).toPrecision(4);
-    }
+    const fit = fitPatchFor(rec);
+    if (fit) patch.s = fit;
     itemPatch(id, patch);
   }
 
+  // Booth signs show what is on display there.
+  function updateBoothLabels() {
+    for (const b of BOOTHS) {
+      if (!b.label) continue;
+      const occ = [...items.values()].find((r) => r.data.kind !== 'portal' && exhibitOf(r.data) && exhibitOf(r.data).booth === b);
+      const text = occ ? font3d(itemTitle(occ.data)).toUpperCase().slice(0, 24) : `BOOTH ${b.n}`;
+      if (b.labelText !== text) { b.label.setAttribute('text', { value: text }); b.labelText = text; }
+    }
+  }
+
+  function buildVenue() {
+    const root = $('#venue');
+    if (!root || root.children.length) return;
+    const box = (parent, pos, w, h, d, mat, cls, rot) => {
+      const e = el('a-box', { position: pos, width: w, height: h, depth: d }, parent);
+      if (cls) e.className = cls;
+      if (rot) e.setAttribute('rotation', rot);
+      e.setAttribute('material', mat);
+      return e;
+    };
+    const txt = (parent, pos, value, width, color, wrap) => {
+      const t = el('a-entity', { position: pos }, parent);
+      t.setAttribute('text', { value, align: 'center', color: color || '#ffffff', width, wrapCount: wrap || 24 });
+      return t;
+    };
+    const H = HALL.half, WH = HALL.wallH;
+    // floor with aisle lines
+    const fl = el('a-plane', { rotation: '-90 0 0', position: '0 0.004 0', width: 30, height: 30 }, root);
+    fl.setAttribute('material', { color: '#dcd7cf', roughness: 0.6 });
+    for (const x of [-3.2, 3.2]) {
+      const ln = el('a-plane', { rotation: '-90 0 0', position: `${x} 0.007 0`, width: 0.12, height: 27 }, root);
+      ln.setAttribute('material', { color: '#b9b1a3', shader: 'flat' });
+    }
+    const mat = el('a-plane', { rotation: '-90 0 0', position: '0 0.008 13.2', width: 5, height: 2.6 }, root);
+    mat.setAttribute('material', { color: '#2b2f38', roughness: 1 });
+    // walls (front wall has a wide entrance)
+    const wall = { color: '#f2efe9', roughness: 0.9 };
+    box(root, `0 ${WH / 2} ${-H}`, 30, WH, 0.2, wall);
+    box(root, `${-H} ${WH / 2} 0`, 0.2, WH, 30, wall);
+    box(root, `${H} ${WH / 2} 0`, 0.2, WH, 30, wall);
+    box(root, `-9 ${WH / 2} ${H}`, 12, WH, 0.2, wall);
+    box(root, `9 ${WH / 2} ${H}`, 12, WH, 0.2, wall);
+    box(root, `0 ${WH - 1.25} ${H}`, 6, 2.5, 0.2, wall);
+    // ceiling trusses
+    for (const z of [-10, -3.5, 3, 9.5]) box(root, `0 ${WH - 0.4} ${z}`, 30, 0.22, 0.22, { color: '#3a3f4a', roughness: 0.6 });
+    for (const x of [-7, 0, 7]) box(root, `${x} ${WH - 0.4} 0`, 0.18, 0.18, 30, { color: '#3a3f4a', roughness: 0.6 });
+
+    // back wall: banner with room name, notice board, QUESTIONS and IDEAS
+    box(root, `0 5.5 ${-H + 0.18}`, 13, 1.1, 0.12, { color: '#1b1f27' });
+    const title = el('a-entity', { id: 'roomTitle3d', position: `0 5.5 ${-H + 0.26}` }, root);
+    title.setAttribute('text', { value: 'EXHIBITION HALL', align: 'center', color: '#ffffff', width: 11, wrapCount: 30 });
+    box(root, `0 2.4 ${-H + 0.13}`, 8.4, 3.4, 0.06, { color: '#1b1f27' });
+    const nb = box(root, `0 2.4 ${-H + 0.17}`, 8, 3, 0.04, { color: '#c89f6b', roughness: 1 }, 'clickable pinnable');
+    nb.id = 'noticeBoard';
+    txt(root, `0 4.2 ${-H + 0.2}`, 'NOTICE BOARD', 6, '#1b1f27', 24);
+    for (const [x, name, color] of [[-8.6, 'QUESTIONS', '#7fa6a0'], [8.6, 'IDEAS', '#b6a6cf']]) {
+      box(root, `${x} 2.1 ${-H + 0.15}`, 4.2, 2.6, 0.06, { color, roughness: 1 }, 'clickable pinnable');
+      txt(root, `${x} 3.7 ${-H + 0.2}`, name, 4, '#1b1f27', 18);
+    }
+
+    // booths
+    BOOTHS.forEach((b, i) => {
+      const accent = BOOTH_COLORS[i % BOOTH_COLORS.length];
+      const g = el('a-entity', { position: `${b.x} 0 ${b.z}`, rotation: `0 ${b.ry} 0` }, root);
+      box(g, '0 1.45 0', 4.6, 2.9, 0.1, { color: '#f7f6f3', roughness: 1 }, 'clickable pinnable');
+      box(g, '0 3.15 0.06', 4.9, 0.5, 0.22, { color: accent, roughness: 0.6 });
+      b.label = txt(g, '0 3.15 0.18', `BOOTH ${b.n}`, 4.4, '#ffffff', 22);
+      b.labelText = `BOOTH ${b.n}`;
+      for (const sx of [-2.3, 2.3]) box(g, `${sx} 1.2 1.25`, 0.06, 2.4, 2.5, { color: '#e7e3dc', roughness: 1 });
+      const carpet = el('a-plane', { rotation: '-90 0 0', position: '0 0.01 1.3', width: 4.55, height: 2.55 }, g);
+      carpet.setAttribute('material', { color: accent, opacity: 0.28, transparent: true, roughness: 1 });
+    });
+
+    // display pedestals for models (you can step onto them)
+    PEDESTALS.forEach((pd) => {
+      const c = el('a-cylinder', { class: 'clickable floor', position: `${pd.x} ${pd.top / 2} ${pd.z}`, radius: 1.5, height: pd.top }, root);
+      c.setAttribute('material', { color: '#e9e5de', roughness: 0.5 });
+      const ring = el('a-torus', { position: `${pd.x} ${pd.top} ${pd.z}`, rotation: '90 0 0', radius: 1.5, 'radius-tubular': 0.025 }, root);
+      ring.setAttribute('material', { color: '#c9a15f', shader: 'flat' });
+    });
+  }
   // ---------------- shared objects: models & PDFs ----------------
   const PDF_W = 1.6;   // panel width in metres at scale 1
   const PDF_BASE = 0.55; // height of the panel's lower edge
@@ -625,6 +739,7 @@
     } else {
       buildPdfPanel(rec);
     }
+    updateBoothLabels();
     refreshPanel('objects');
   }
 
@@ -643,6 +758,7 @@
     Object.assign(rec.data, patch);
     applyItemTransform(rec);
     if (rec.data.kind === 'pdf' && pageChanged) { showPdfPage(rec); updatePdfNoteVisibility(rec); }
+    updateBoothLabels();
     refreshPanel('objects');
   }
 
@@ -654,6 +770,7 @@
     if (rec.doc) rec.doc.destroy().catch(() => {});
     if (rec.root.parentNode) rec.root.parentNode.removeChild(rec.root);
     items.delete(id);
+    updateBoothLabels();
     refreshPanel('objects');
   }
 
@@ -692,9 +809,9 @@
       justUploaded.delete(rec.data.id);
       const maxDim = Math.max(rec.size.x, rec.size.y, rec.size.z);
       const footprint = Math.max(rec.size.x, rec.size.z);
-      if (isOnStage(rec.data) && footprint > 5) {
-        send({ type: 'item-update', id: rec.data.id, s: +(4.5 / footprint).toPrecision(4) });
-        toast('Model resized to fit on the stage. Use "1:1" in Objects for real size.', 6000);
+      if (exhibitOf(rec.data) && footprint > 2.4) {
+        send({ type: 'item-update', id: rec.data.id, s: +(2.2 / footprint).toPrecision(4) });
+        toast('Model resized to fit its display. Use "1:1" in Objects for real size.', 6000);
       } else if (maxDim > 18 || maxDim < 0.3) {
         send({ type: 'item-update', id: rec.data.id, s: +(6 / maxDim).toPrecision(4) });
         toast(maxDim > 18 ? 'Large model: scaled down to fit the room. Use "1:1" in Objects for real size.' : 'Small model: scaled up to be visible. Use "1:1" in Objects for real size.', 6000);
@@ -870,7 +987,17 @@
       rec.pages = rec.doc.numPages;
       await showPdfPage(rec);
       updatePdfNoteVisibility(rec);
-      if (justUploaded.has(rec.data.id)) { justUploaded.delete(rec.data.id); toast(`"${itemTitle(rec.data)}" is ready (${rec.pages} page${rec.pages > 1 ? 's' : ''}).`); }
+      if (justUploaded.has(rec.data.id)) {
+        justUploaded.delete(rec.data.id);
+        // In a booth: make the document as big as the booth allows, staying below the booth sign.
+        const where = exhibitOf(rec.data);
+        const tex = rec.textures.get(rec.data.page || 1);
+        if (where && where.booth && tex) {
+          const s = +Math.min(1.5, 2.75 / (PDF_BASE + PDF_W * tex.userData.aspect)).toFixed(3);
+          if (Math.abs(s - (rec.data.s || 1)) > 0.01) itemPatch(rec.data.id, { s });
+        }
+        toast(`"${itemTitle(rec.data)}" is ready (${rec.pages} page${rec.pages > 1 ? 's' : ''}).`);
+      }
       refreshPanel('objects');
     } catch (e) {
       console.warn('pdf error', e);
@@ -1018,7 +1145,7 @@
     e.preventDefault();
     if (!uploadFile || uploadXhr) return;
     const isPdf = uploadFile.name.toLowerCase().endsWith('.pdf');
-    const spot = stageSpot(isPdf ? 'pdf' : 'model');
+    const spot = exhibitSpot(isPdf ? 'pdf' : 'model');
     const f = spot || viewerFrame(isPdf ? 2.4 : 3);
     const q = new URLSearchParams({ name: uploadFile.name, p: f.p.join(','), ry: String(f.ry) });
     if (spot && spot.s) q.set('s', String(spot.s));
@@ -1041,7 +1168,8 @@
         justUploaded.add(data.item.id);
         addItem(data.item);
         closeSheet('#upload');
-        toast(isOnStage(data.item) ? `Uploaded. "${data.item.name}" is going on the stage...` : `Uploaded. Loading "${data.item.name}" in front of you...`);
+        const where = exhibitOf(data.item);
+        toast(where ? `Uploaded. "${data.item.name}" is going ${where.pedestal ? 'on a display pedestal' : `into booth ${where.booth.n}`}...` : `Uploaded. Loading "${data.item.name}" in front of you...`);
       } else {
         $('#uploadMsg').textContent = data.error || `Upload failed (${xhr.status}).`;
         $('#uploadGo').disabled = false;
@@ -1339,7 +1467,7 @@
         if (d.kind === 'portal') tool('Enter room', () => enterPortal(d.id));
         tool('Go to', () => { closeSheet('#panel'); goTo(d.id); });
         tool('Bring here', () => { bringHere(d.id); });
-        if (d.kind !== 'portal' && !isOnStage(d)) tool('Put on stage', () => putOnStage(d.id));
+        if (d.kind !== 'portal' && !exhibitOf(d)) tool('Put on display', () => putOnDisplay(d.id));
         tool('Turn left', () => itemPatch(d.id, { ry: ((d.ry || 0) + 15) % 360 }));
         tool('Turn right', () => itemPatch(d.id, { ry: ((d.ry || 0) + 345) % 360 }));
         tool('Smaller', () => itemPatch(d.id, { s: +((d.s || 1) / 1.25).toPrecision(5) }));
@@ -1680,28 +1808,15 @@
 
   // ---------------- scene wiring ----------------
   function wireScene() {
+    buildVenue(); // build the hall first so its boards and pedestals get wired below
     document.querySelectorAll('.pinnable').forEach((n) => n.addEventListener('click', (e) => onSurfaceClick(e, null)));
-    // Floor, steps and stage: tap / click / aim there to walk to that spot (and onto the stage).
+    // Floor and pedestals: tap / click / aim there to walk to that spot (and step onto it).
     document.querySelectorAll('.floor').forEach((f) => f.addEventListener('click', (e) => {
       if (fromDrag(e)) return;
       const hit = e.detail && e.detail.intersection;
       if (hit) $('#rig').components['rig-move'].glideTo(hit.point.x, hit.point.z, hit.point.y);
     }));
-    buildSeating();
-  }
-
-  // Audience benches: 4 rows on each side of a centre aisle, facing the stage.
-  function buildSeating() {
-    const root = $('#seating');
-    if (!root || root.children.length) return;
-    for (const z of [-2.6, -0.6, 1.4, 3.4]) {
-      for (const x of [-3.7, 3.7]) {
-        const seat = el('a-box', { position: `${x} 0.22 ${z}`, width: 5, height: 0.44, depth: 0.55 }, root);
-        seat.setAttribute('material', { color: '#2f3a4a', roughness: 0.9 });
-        const back = el('a-box', { position: `${x} 0.72 ${z + 0.26}`, width: 5, height: 0.56, depth: 0.08 }, root);
-        back.setAttribute('material', { color: '#243041', roughness: 0.9 });
-      }
-    }
+    refreshRaycasters();
   }
 
   $('#micBtn').addEventListener('click', () => setMuted(!me.muted));

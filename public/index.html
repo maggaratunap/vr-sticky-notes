@@ -24,61 +24,19 @@
   <a-entity light="type: hemisphere; color: #ffffff; groundColor: #b9ad98; intensity: 0.95"></a-entity>
   <a-entity light="type: ambient; color: #ffffff; intensity: 0.4"></a-entity>
   <a-entity light="type: directional; color: #fff6e8; intensity: 0.55" position="-3 8 6"></a-entity>
-  <!-- warm stage light -->
-  <a-entity light="type: point; color: #ffe9c7; intensity: 0.9; distance: 18; decay: 1" position="0 5.2 -5.5"></a-entity>
   <a-sky color="#aad8f7"></a-sky>
 
-  <!-- ===== Presentation venue (20 x 20 m) ===== -->
-  <!-- Ground. It extends past the room so full-size models can be walked or flown around. -->
+  <!-- ===== Exhibition hall (30 x 30 m), built in app.js: booths, pedestals, boards, banner ===== -->
+  <!-- Ground. It extends past the hall so full-size models can be walked or flown around. -->
   <a-plane id="floor" class="clickable floor" rotation="-90 0 0" width="120" height="120" color="#cfc6b4" material="roughness: 1"></a-plane>
-  <a-plane rotation="-90 0 0" position="0 0.004 1" width="20" height="18" color="#3e4a5c" material="roughness: 1"></a-plane>
-  <a-plane rotation="-90 0 0" position="0 0.006 2.3" width="1.8" height="15.4" color="#7d1d2a" material="roughness: 1"></a-plane>
-
-  <!-- Walls -->
-  <a-plane position="0 3.25 -10" width="20" height="6.5" color="#e8e1d5"></a-plane>
-  <a-plane position="-10 3.25 0" rotation="0 90 0" width="20" height="6.5" color="#ebe5d9"></a-plane>
-  <a-plane position="10 3.25 0" rotation="0 -90 0" width="20" height="6.5" color="#ebe5d9"></a-plane>
-
-  <!-- Stage: walk up the steps or tap / aim at the stage to step onto it -->
-  <a-box id="stage" class="clickable floor" position="0 0.25 -7.6" width="14" height="0.5" depth="4.8" color="#8a5a3b" material="roughness: 0.8"></a-box>
-  <a-box position="0 0.505 -5.22" width="14" height="0.02" depth="0.06" color="#e2b86b" material="shader: flat"></a-box>
-  <a-box class="clickable floor" position="0 0.125 -4.85" width="3" height="0.25" depth="0.7" color="#7a4f33"></a-box>
-
-  <!-- Presentation screen: pin notes on it, or put PDFs and models in front of it -->
-  <a-box position="0 3.15 -9.9" width="9.4" height="4.6" depth="0.1" color="#1b1f27"></a-box>
-  <a-box id="stageScreen" class="clickable pinnable" position="0 3.15 -9.83" width="9" height="4.2" depth="0.04" material="shader: flat; color: #f7f5ef"></a-box>
-
-  <!-- Curtains and valance with the room name -->
-  <a-box position="-7.6 3 -9.4" width="1.2" height="6" depth="0.6" color="#8c1c2b" material="roughness: 1"></a-box>
-  <a-box position="7.6 3 -9.4" width="1.2" height="6" depth="0.6" color="#8c1c2b" material="roughness: 1"></a-box>
-  <a-box position="0 5.95 -9.35" width="16.4" height="0.9" depth="0.5" color="#7d1d2a" material="roughness: 1"></a-box>
-  <a-entity id="roomTitle3d" position="0 5.95 -9.09" text="value: MAIN HALL; align: center; color: #ffffff; width: 11; wrapCount: 30"></a-entity>
-
-  <!-- Podium -->
-  <a-entity position="5.9 0.5 -5.9" rotation="0 -25 0">
-    <a-box position="0 0.55 0" width="0.75" height="1.1" depth="0.5" color="#5b3a26"></a-box>
-    <a-box position="0 1.13 0.04" rotation="-20 0 0" width="0.85" height="0.05" depth="0.58" color="#6e4730"></a-box>
-  </a-entity>
-
-  <!-- Audience note boards on the side walls -->
-  <a-entity position="-9.94 1.75 2" rotation="0 90 0">
-    <a-box class="clickable pinnable" width="7" height="2.6" depth="0.06" color="#7fa6a0" material="roughness: 1"></a-box>
-    <a-entity text="value: QUESTIONS; align: center; color: #2b2b2b; width: 5" position="0 1.55 0.04"></a-entity>
-  </a-entity>
-  <a-entity position="9.94 1.75 2" rotation="0 -90 0">
-    <a-box class="clickable pinnable" width="7" height="2.6" depth="0.06" color="#b6a6cf" material="roughness: 1"></a-box>
-    <a-entity text="value: IDEAS; align: center; color: #2b2b2b; width: 5" position="0 1.55 0.04"></a-entity>
-  </a-entity>
-
-  <!-- Audience benches (built in app.js) -->
-  <a-entity id="seating"></a-entity>
+  <a-entity id="venue"></a-entity>
 
   <a-entity id="items"></a-entity>
   <a-entity id="notes"></a-entity>
   <a-entity id="avatars"></a-entity>
   <a-entity id="vrLayer"></a-entity>
 
-  <a-entity id="rig" position="0 0 7.5" rig-move="bounds: 58">
+  <a-entity id="rig" position="0 0 12.5" rig-move="bounds: 58">
     <a-entity id="cam" camera position="0 1.6 0"
       look-controls="pointerLockEnabled: false; magicWindowTrackingEnabled: true"
       wasd-controls="enabled: false">
@@ -131,7 +89,7 @@
     <details class="fine">
       <summary>How it works on each device</summary>
       <ul>
-        <li><b>Computer:</b> drag to look, WASD to move, click the screen, a board, a model, or a PDF to leave a note.</li>
+        <li><b>Computer:</b> drag to look, WASD to move, click a booth wall, a board, a model, or a PDF to leave a note.</li>
         <li><b>Phone:</b> drag or turn your phone to look, tap the floor to walk, tap a surface to leave a note.</li>
         <li><b>Quest / headset:</b> press "VR", point and pull the trigger. Left stick walks, right stick turns, A or X toggles your mic.</li>
         <li><b>Cardboard:</b> press "VR", aim the ring with your head, and press the Cardboard button to walk to the floor spot, open a note, or press a button.</li>
