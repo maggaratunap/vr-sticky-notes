@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: pinspace-presentations
+    runtime: node
+    branch: pinspace-render
+    region: oregon
+    plan: free
+    buildCommand: cd pinspace && npm ci && npm run build
+    startCommand: cd pinspace && npm start
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: 24.22.1
+      - key: DATA_DIR
+        value: /tmp/pinspace-data
+      - key: STORAGE_MODE
+        value: preview

@@ -1,0 +1,8 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {validCamera,validateDeck,readPresentation,exampleDeck} from '../lib/presentation.ts';
+const files=[{id:'model1',kind:'glb'},{id:'doc1',kind:'pdf'}];
+const slide={id:'one',title:'Entrance',kind:'model',asset:'model1',page:1,camera:{position:[1,2,3],target:[0,0,0]},notes:'Private talking points'};
+test('outline validates cameras, file ownership and limits',()=>{assert.equal(validateDeck([slide],files)[0].notes,slide.notes);assert.throws(()=>validateDeck([{...slide,asset:'another-room'}],files));assert.throws(()=>validateDeck([{...slide,kind:'pdf'}],files));assert.throws(()=>validateDeck([slide,slide],files));assert.throws(()=>validateDeck(Array.from({length:51},(_,i)=>({...slide,id:'s'+i})),files));assert.equal(validCamera({position:[NaN,0,0],target:[0,0,0]}),false);assert.equal(validCamera({position:[0,0,0],target:[0,0,0]}),false);});
+test('audience gets no speaker notes and disconnected presenters expire',()=>{const now=Date.now(),r={presentationDeck:JSON.stringify([slide]),presentationRevision:2,presentationState:JSON.stringify({live:true,slideId:'one',presenterName:'Host',updated:now}),presenterSeen:now};assert.equal(readPresentation(r,false,files,now).deck[0].notes,'');assert.equal(readPresentation(r,true,files,now).deck[0].notes,slide.notes);assert.equal(readPresentation(r,false,files,now).state.live,true);assert.equal(readPresentation(r,false,files,now+16000).state.live,false);assert.equal(readPresentation(r,false,[],now).deck.length,0);assert.equal(readPresentation(r,false,[],now).state.live,false);});
+test('sample tour is valid without uploads',()=>assert.equal(validateDeck(exampleDeck(),[]).length,3));
