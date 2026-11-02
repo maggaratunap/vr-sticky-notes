@@ -445,6 +445,8 @@
     b.classList.toggle('on', !me.muted);
     b.classList.toggle('off', me.muted);
     b.setAttribute('aria-label', me.muted ? 'Unmute microphone' : 'Mute microphone');
+    const lbl = $('#micLbl');
+    if (lbl) lbl.textContent = me.muted ? 'Muted' : 'Mic on';
     b.setAttribute('aria-pressed', String(!me.muted));
   }
 
@@ -572,7 +574,7 @@
   // pedestals stand in the middle aisle for models, and the back wall has the notice board.
   // Uploads go into a free booth or pedestal, facing the aisle.
   const HALL = { half: 15, wallH: 7 };
-  const BOOTH_COLORS = ['#2e86ab', '#e4572e', '#3bb273', '#f3a712', '#8e44ad', '#16a085', '#d35400', '#c2185b'];
+  const C3D = { concrete: '#d4d8db', inlay: '#c7ccd0', plaster: '#f2f3f1', panel: '#f8f9f8', steel: '#8a929c', graphite: '#262b33', felt: '#dde1e4', blueprint: '#2f6fc4' };
   const BOOTHS = [];
   [-9, -3, 3, 9].forEach((z, i) => BOOTHS.push({ n: i + 1, x: -13.6, z, ry: 90 }));
   [-9, -3, 3, 9].forEach((z, i) => BOOTHS.push({ n: i + 5, x: 13.6, z, ry: -90 }));
@@ -659,15 +661,15 @@
     const H = HALL.half, WH = HALL.wallH;
     // floor with aisle lines
     const fl = el('a-plane', { rotation: '-90 0 0', position: '0 0.004 0', width: 30, height: 30 }, root);
-    fl.setAttribute('material', { color: '#dcd7cf', roughness: 0.6 });
+    fl.setAttribute('material', { color: C3D.concrete, roughness: 0.42, metalness: 0.05 });
     for (const x of [-3.2, 3.2]) {
-      const ln = el('a-plane', { rotation: '-90 0 0', position: `${x} 0.007 0`, width: 0.12, height: 27 }, root);
-      ln.setAttribute('material', { color: '#b9b1a3', shader: 'flat' });
+      const ln = el('a-plane', { rotation: '-90 0 0', position: `${x} 0.007 0`, width: 0.06, height: 27 }, root);
+      ln.setAttribute('material', { color: C3D.steel, shader: 'flat' });
     }
     const mat = el('a-plane', { rotation: '-90 0 0', position: '0 0.008 13.2', width: 5, height: 2.6 }, root);
-    mat.setAttribute('material', { color: '#2b2f38', roughness: 1 });
+    mat.setAttribute('material', { color: C3D.graphite, roughness: 1 });
     // walls (front wall has a wide entrance)
-    const wall = { color: '#f2efe9', roughness: 0.9 };
+    const wall = { color: C3D.plaster, roughness: 0.95 };
     box(root, `0 ${WH / 2} ${-H}`, 30, WH, 0.2, wall);
     box(root, `${-H} ${WH / 2} 0`, 0.2, WH, 30, wall);
     box(root, `${H} ${WH / 2} 0`, 0.2, WH, 30, wall);
@@ -675,41 +677,43 @@
     box(root, `9 ${WH / 2} ${H}`, 12, WH, 0.2, wall);
     box(root, `0 ${WH - 1.25} ${H}`, 6, 2.5, 0.2, wall);
     // ceiling trusses
-    for (const z of [-10, -3.5, 3, 9.5]) box(root, `0 ${WH - 0.4} ${z}`, 30, 0.22, 0.22, { color: '#3a3f4a', roughness: 0.6 });
-    for (const x of [-7, 0, 7]) box(root, `${x} ${WH - 0.4} 0`, 0.18, 0.18, 30, { color: '#3a3f4a', roughness: 0.6 });
+    for (const z of [-10, -3.5, 3, 9.5]) box(root, `0 ${WH - 0.35} ${z}`, 30, 0.14, 0.14, { color: C3D.steel, roughness: 0.4, metalness: 0.6 });
+    for (const x of [-7, 7]) box(root, `${x} ${WH - 0.35} 0`, 0.1, 0.1, 30, { color: C3D.steel, roughness: 0.4, metalness: 0.6 });
 
     // back wall: banner with room name, notice board, QUESTIONS and IDEAS
-    box(root, `0 5.5 ${-H + 0.18}`, 13, 1.1, 0.12, { color: '#1b1f27' });
+    box(root, `0 5.5 ${-H + 0.18}`, 13, 1.1, 0.12, { color: C3D.graphite, roughness: 0.6 });
+    box(root, `0 4.92 ${-H + 0.25}`, 13, 0.05, 0.02, { color: C3D.blueprint, shader: 'flat' });
     const title = el('a-entity', { id: 'roomTitle3d', position: `0 5.5 ${-H + 0.26}` }, root);
     title.setAttribute('text', { value: 'EXHIBITION HALL', align: 'center', color: '#ffffff', width: 11, wrapCount: 30 });
-    box(root, `0 2.4 ${-H + 0.13}`, 8.4, 3.4, 0.06, { color: '#1b1f27' });
-    const nb = box(root, `0 2.4 ${-H + 0.17}`, 8, 3, 0.04, { color: '#c89f6b', roughness: 1 }, 'clickable pinnable');
+    box(root, `0 2.4 ${-H + 0.13}`, 8.2, 3.2, 0.06, { color: C3D.graphite, roughness: 0.6 });
+    const nb = box(root, `0 2.4 ${-H + 0.17}`, 8, 3, 0.04, { color: C3D.felt, roughness: 1 }, 'clickable pinnable');
     nb.id = 'noticeBoard';
-    txt(root, `0 4.2 ${-H + 0.2}`, 'NOTICE BOARD', 6, '#1b1f27', 24);
-    for (const [x, name, color] of [[-8.6, 'QUESTIONS', '#7fa6a0'], [8.6, 'IDEAS', '#b6a6cf']]) {
-      box(root, `${x} 2.1 ${-H + 0.15}`, 4.2, 2.6, 0.06, { color, roughness: 1 }, 'clickable pinnable');
-      txt(root, `${x} 3.7 ${-H + 0.2}`, name, 4, '#1b1f27', 18);
+    txt(root, `0 4.25 ${-H + 0.2}`, 'Notice board', 5, C3D.graphite, 24);
+    for (const [x, name] of [[-8.6, 'Questions'], [8.6, 'Ideas']]) {
+      box(root, `${x} 2.1 ${-H + 0.13}`, 4.4, 2.8, 0.05, { color: C3D.graphite, roughness: 0.6 });
+      box(root, `${x} 2.1 ${-H + 0.17}`, 4.2, 2.6, 0.04, { color: C3D.felt, roughness: 1 }, 'clickable pinnable');
+      txt(root, `${x} 3.85 ${-H + 0.2}`, name, 3.6, C3D.graphite, 18);
     }
 
     // booths
-    BOOTHS.forEach((b, i) => {
-      const accent = BOOTH_COLORS[i % BOOTH_COLORS.length];
+    BOOTHS.forEach((b) => {
       const g = el('a-entity', { position: `${b.x} 0 ${b.z}`, rotation: `0 ${b.ry} 0` }, root);
-      box(g, '0 1.45 0', 4.6, 2.9, 0.1, { color: '#f7f6f3', roughness: 1 }, 'clickable pinnable');
-      box(g, '0 3.15 0.06', 4.9, 0.5, 0.22, { color: accent, roughness: 0.6 });
-      b.label = txt(g, '0 3.15 0.18', `BOOTH ${b.n}`, 4.4, '#ffffff', 22);
+      box(g, '0 1.45 0', 4.6, 2.9, 0.08, { color: C3D.panel, roughness: 1 }, 'clickable pinnable');
+      box(g, '0 3.17 0.04', 4.8, 0.46, 0.16, { color: C3D.graphite, roughness: 0.55 });
+      box(g, '0 2.92 0.12', 4.8, 0.035, 0.012, { color: C3D.blueprint, shader: 'flat' });
+      b.label = txt(g, '0 3.17 0.13', `BOOTH ${b.n}`, 4.2, '#ffffff', 22);
       b.labelText = `BOOTH ${b.n}`;
-      for (const sx of [-2.3, 2.3]) box(g, `${sx} 1.2 1.25`, 0.06, 2.4, 2.5, { color: '#e7e3dc', roughness: 1 });
-      const carpet = el('a-plane', { rotation: '-90 0 0', position: '0 0.01 1.3', width: 4.55, height: 2.55 }, g);
-      carpet.setAttribute('material', { color: accent, opacity: 0.28, transparent: true, roughness: 1 });
+      for (const sx of [-2.3, 2.3]) box(g, `${sx} 1.2 1.25`, 0.04, 2.4, 2.5, { color: '#eceeed', roughness: 1 });
+      const inlay = el('a-plane', { rotation: '-90 0 0', position: '0 0.01 1.3', width: 4.55, height: 2.55 }, g);
+      inlay.setAttribute('material', { color: C3D.inlay, roughness: 0.6 });
     });
 
     // display pedestals for models (you can step onto them)
     PEDESTALS.forEach((pd) => {
       const c = el('a-cylinder', { class: 'clickable floor', position: `${pd.x} ${pd.top / 2} ${pd.z}`, radius: 1.5, height: pd.top }, root);
-      c.setAttribute('material', { color: '#e9e5de', roughness: 0.5 });
-      const ring = el('a-torus', { position: `${pd.x} ${pd.top} ${pd.z}`, rotation: '90 0 0', radius: 1.5, 'radius-tubular': 0.025 }, root);
-      ring.setAttribute('material', { color: '#c9a15f', shader: 'flat' });
+      c.setAttribute('material', { color: '#f5f6f5', roughness: 0.35 });
+      const ring = el('a-torus', { position: `${pd.x} ${pd.top} ${pd.z}`, rotation: '90 0 0', radius: 1.5, 'radius-tubular': 0.018 }, root);
+      ring.setAttribute('material', { color: C3D.blueprint, shader: 'flat' });
     });
   }
   // ---------------- shared objects: models & PDFs ----------------
@@ -855,10 +859,10 @@
     frame(0.12, 2.36, 0.14, 0.66, 1.18);
     frame(1.44, 0.14, 0.14, 0, 2.35);
     const door = el('a-plane', { class: 'clickable item-surface portal-surface', width: 1.2, height: 2.24, position: '0 1.12 0' }, rec.inner);
-    door.setAttribute('material', { shader: 'flat', color: '#4fb3f6', opacity: 0.78, transparent: true, side: 'double' });
+    door.setAttribute('material', { shader: 'flat', color: '#4d8fe0', opacity: 0.78, transparent: true, side: 'double' });
     door.setAttribute('animation__glow', { property: 'material.opacity', from: 0.62, to: 0.9, dur: 1400, dir: 'alternate', loop: true, easing: 'easeInOutSine' });
-    door.addEventListener('mouseenter', () => door.setAttribute('material', 'color', '#86ccff'));
-    door.addEventListener('mouseleave', () => door.setAttribute('material', 'color', '#4fb3f6'));
+    door.addEventListener('mouseenter', () => door.setAttribute('material', 'color', '#86b4ef'));
+    door.addEventListener('mouseleave', () => door.setAttribute('material', 'color', '#4d8fe0'));
     door.addEventListener('click', (e) => { e.stopPropagation(); if (!fromDrag(e)) enterPortal(it.id); });
     rec.content = door;
     const sign = el('a-entity', { position: '0 2.62 0' }, rec.inner);
@@ -1580,7 +1584,7 @@
   // one character in metres, and long labels shrink so they never spill past the edges.
   function vrButton(parent, label, x, y, w, h, onClick, opts) {
     opts = opts || {};
-    const base = opts.color || '#3a4252';
+    const base = opts.color || '#363c47';
     const b = el('a-entity', { class: 'clickable', position: `${x} ${y} 0.004` }, parent);
     b.setAttribute('geometry', { primitive: 'plane', width: w, height: h });
     b.setAttribute('material', { color: base, shader: 'flat' });
@@ -1588,7 +1592,7 @@
     const charSize = Math.min(opts.charSize || 0.028, h * 0.55);
     const wrap = Math.max(String(label).length + 1, Math.round(tw / charSize), 2);
     b.setAttribute('text', { value: label, align: 'center', anchor: 'center', baseline: 'center', color: opts.textColor || '#ffffff', width: tw, wrapCount: wrap, zOffset: 0.002 });
-    b.addEventListener('mouseenter', () => b.setAttribute('material', 'color', opts.hover || '#5c6880'));
+    b.addEventListener('mouseenter', () => b.setAttribute('material', 'color', opts.hover || '#2f6fc4'));
     b.addEventListener('mouseleave', () => b.setAttribute('material', 'color', base));
     b.addEventListener('click', (e) => { e.stopPropagation(); if (!fromDrag(e)) onClick(b); });
     return b;
@@ -1612,7 +1616,7 @@
     inFrontOfViewer(root, 1.0, -0.2);
     const bg = el('a-entity', { position: '0 0.065 -0.002' }, root);
     bg.setAttribute('geometry', { primitive: 'plane', width: 1.04, height: 0.93 });
-    bg.setAttribute('material', { color: '#1b1f27', shader: 'flat', opacity: 0.95, transparent: true });
+    bg.setAttribute('material', { color: '#262b33', shader: 'flat', opacity: 0.94, transparent: true });
     const title = el('a-entity', { position: '-0.49 0.475 0.003' }, root);
     title.setAttribute('text', { value: current ? 'Edit sticky note' : 'New sticky note', color: '#ffffff', width: 0.6, wrapCount: 24, anchor: 'left' });
     const preview = el('a-entity', { position: '0 0.375 0.003' }, root);
@@ -1629,7 +1633,7 @@
     // quick phrases (fastest way to comment, especially in Cardboard)
     ['Looks good', 'Question:', 'Clash here', 'Needs change'].forEach((ph, i) => vrButton(root, ph, -0.3675 + i * 0.245, 0.255, 0.235, 0.07, () => {
       add((text && !/\s$/.test(text) ? ' ' : '') + ph); shift = false; refreshKeys();
-    }, { color: '#2c3a33', hover: '#3f5a4a', charSize: 0.02 }));
+    }, { color: '#2b3e5c', hover: '#2f6fc4', charSize: 0.02 }));
 
     // letter keys: 8.5 cm squares
     const KEY = 0.085, PITCH = 0.095;
@@ -1650,12 +1654,12 @@
     vrButton(root, 'Shift', -0.38, by, 0.18, KEY, () => { shift = !shift; refreshKeys(); }, { charSize: 0.03 });
     vrButton(root, 'space', -0.055, by, 0.45, KEY, () => add(' '), { charSize: 0.03 });
     vrButton(root, '!', 0.2225, by, KEY, KEY, () => add('!'), { charSize: 0.04 });
-    vrButton(root, 'Delete', 0.3725, by, 0.195, KEY, () => { text = text.slice(0, -1); showText(); }, { color: '#5a3a3a', hover: '#7a4a4a', charSize: 0.028 });
+    vrButton(root, 'Delete', 0.3725, by, 0.195, KEY, () => { text = text.slice(0, -1); showText(); }, { color: '#5b3439', hover: '#b4373f', charSize: 0.028 });
 
     const cy = by - 0.105;
     config.noteColors.forEach((c, i) => vrButton(root, '', -0.44 + i * 0.07, cy, 0.06, 0.06, () => { color = c; showText(); }, { color: c, hover: c }));
     vrButton(root, 'Cancel', 0.08, cy, 0.17, 0.075, () => closeVrKeyboard(), { charSize: 0.028 });
-    vrButton(root, 'Post', 0.33, cy, 0.24, 0.075, () => { closeVrKeyboard(true); submitNote(opts, text, color); }, { color: '#f2b705', hover: '#ffd24a', textColor: '#1b1f27', charSize: 0.034 });
+    vrButton(root, 'Post', 0.33, cy, 0.24, 0.075, () => { closeVrKeyboard(true); submitNote(opts, text, color); }, { color: '#2f6fc4', hover: '#4d8fe0', textColor: '#ffffff', charSize: 0.034 });
 
     refreshKeys();
     showText();
@@ -1680,7 +1684,7 @@
     const total = paperH + 0.22;
     const bg = el('a-entity', { position: '0 0 -0.002' }, root);
     bg.setAttribute('geometry', { primitive: 'plane', width: W + 0.06, height: total });
-    bg.setAttribute('material', { color: '#1b1f27', shader: 'flat', opacity: 0.95, transparent: true });
+    bg.setAttribute('material', { color: '#262b33', shader: 'flat', opacity: 0.94, transparent: true });
     const top = total / 2;
     const paper = el('a-entity', { position: `0 ${top - 0.03 - paperH / 2} 0.003` }, root);
     paper.setAttribute('geometry', { primitive: 'plane', width: W, height: paperH });
@@ -1807,7 +1811,29 @@
   });
 
   // ---------------- scene wiring ----------------
+  // Soft sky: deeper blue overhead fading into the hazy horizon (matches the fog colour).
+  function paintSky() {
+    const sky = $('#sky');
+    const mesh = sky && sky.getObject3D('mesh');
+    if (!mesh) return;
+    const cv = document.createElement('canvas');
+    cv.width = 4; cv.height = 512;
+    const g = cv.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, 0, 512);
+    grad.addColorStop(0, '#79b5e5');
+    grad.addColorStop(0.32, '#a9d6f6');
+    grad.addColorStop(0.5, '#e3eef6');
+    grad.addColorStop(1, '#e3eef6');
+    g.fillStyle = grad; g.fillRect(0, 0, 4, 512);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    mesh.material.map = tex;
+    mesh.material.color.set('#ffffff');
+    mesh.material.needsUpdate = true;
+  }
+
   function wireScene() {
+    paintSky();
     buildVenue(); // build the hall first so its boards and pedestals get wired below
     document.querySelectorAll('.pinnable').forEach((n) => n.addEventListener('click', (e) => onSurfaceClick(e, null)));
     // Floor and pedestals: tap / click / aim there to walk to that spot (and step onto it).

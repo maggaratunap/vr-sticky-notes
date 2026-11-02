@@ -3,9 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-  <meta name="theme-color" content="#1b1f27">
+  <meta name="theme-color" content="#262b33">
   <title>VR Sticky Notes</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='4' width='24' height='24' rx='3' fill='%23f2b705' transform='rotate(-6 16 16)'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&display=swap">
   <link rel="stylesheet" href="/style.css">
   <script src="/vendor/aframe.min.js"></script>
   <script src="/components.js"></script>
@@ -16,19 +19,21 @@
   renderer="antialias: true; colorManagement: true"
   xr-mode-ui="enabled: true"
   device-orientation-permission-ui="enabled: true"
-  loading-screen="dotsColor: #1b1f27; backgroundColor: #f3eee4"
+  loading-screen="dotsColor: #2f6fc4; backgroundColor: #eef2f5"
+  fog="type: linear; color: #e3eef6; near: 34; far: 95"
   gltf-model="dracoDecoderPath: https://www.gstatic.com/draco/versioned/decoders/1.5.7/"
   cursor="rayOrigin: mouse; fuse: false"
   raycaster="objects: .clickable; far: 80">
 
-  <a-entity light="type: hemisphere; color: #ffffff; groundColor: #b9ad98; intensity: 0.95"></a-entity>
-  <a-entity light="type: ambient; color: #ffffff; intensity: 0.4"></a-entity>
-  <a-entity light="type: directional; color: #fff6e8; intensity: 0.55" position="-3 8 6"></a-entity>
-  <a-sky color="#aad8f7"></a-sky>
+  <a-entity light="type: hemisphere; color: #ffffff; groundColor: #c3cad1; intensity: 1.15"></a-entity>
+  <a-entity light="type: ambient; color: #ffffff; intensity: 0.62"></a-entity>
+  <a-entity light="type: directional; color: #ffffff; intensity: 0.55" position="-4 9 6"></a-entity>
+  <!-- light-blue sky; app.js turns it into a soft gradient toward the horizon -->
+  <a-sky id="sky" color="#aad8f7" material="fog: false; shader: flat"></a-sky>
 
   <!-- ===== Exhibition hall (30 x 30 m), built in app.js: booths, pedestals, boards, banner ===== -->
   <!-- Ground. It extends past the hall so full-size models can be walked or flown around. -->
-  <a-plane id="floor" class="clickable floor" rotation="-90 0 0" width="120" height="120" color="#cfc6b4" material="roughness: 1"></a-plane>
+  <a-plane id="floor" class="clickable floor" rotation="-90 0 0" width="160" height="160" material="color: #cfd3d6; roughness: 1"></a-plane>
   <a-entity id="venue"></a-entity>
 
   <a-entity id="items"></a-entity>
@@ -59,29 +64,31 @@
   </a-entity>
 </a-scene>
 
-<!-- Lobby -->
-<div id="lobby" class="overlay">
-  <div class="card lobby-card">
-    <div class="brand"><span class="brand-note"></span>VR Sticky Notes</div>
-    <p class="sub">Shared rooms to talk, review models and documents, and leave sticky-note comments. Works on computers, phones, and VR headsets.</p>
+<!-- Lobby: frosted panel over the live hall -->
+<div id="lobby" class="overlay lobby">
+  <div class="glass lobby-card">
+    <header class="brand"><span class="brand-note" aria-hidden="true"></span><h1>VR Sticky Notes</h1></header>
+    <p class="sub">Walk through a shared exhibition hall, review models and drawings together, talk, and pin comments where they belong. Works on computers, phones and VR headsets.</p>
 
-    <label class="field"><span>Your name</span>
-      <input id="nameInput" maxlength="24" autocomplete="nickname" placeholder="e.g. Lucky">
-    </label>
-    <div class="field"><span>Avatar color</span><div id="userColors" class="swatches"></div></div>
+    <div class="row two">
+      <label class="field"><span class="label">Your name</span>
+        <input id="nameInput" maxlength="24" autocomplete="nickname" placeholder="e.g. Lucky">
+      </label>
+      <div class="field"><span class="label">Avatar color</span><div id="userColors" class="swatches"></div></div>
+    </div>
 
     <div class="field">
-      <div class="row between tight"><span class="label">Rooms</span><button id="newRoomBtn" type="button" class="link">+ New room</button></div>
+      <div class="row between tight"><span class="label">Rooms</span><button id="newRoomBtn" type="button" class="link">New room</button></div>
       <form id="createRoom" class="create" hidden>
         <input id="roomName" maxlength="40" placeholder="Room name, e.g. TCM 366 clash review" required>
         <input id="roomDesc" maxlength="140" placeholder="Short description (optional)">
-        <label class="check"><input id="roomUnlisted" type="checkbox"> Unlisted (only people with the link can find it)</label>
+        <label class="check"><input id="roomUnlisted" type="checkbox"> Unlisted: only people with the link can find it</label>
         <div class="actions"><button type="button" class="btn" id="cancelRoom">Cancel</button><button type="submit" class="btn primary">Create room</button></div>
       </form>
       <div id="roomList" class="room-list" role="listbox" aria-label="Rooms"><p class="fine">Loading rooms...</p></div>
     </div>
 
-    <div class="actions">
+    <div class="actions join">
       <button id="joinMic" class="btn primary">Join with microphone</button>
       <button id="joinMuted" class="btn">Join muted</button>
     </div>
@@ -91,40 +98,55 @@
       <ul>
         <li><b>Computer:</b> drag to look, WASD to move, click a booth wall, a board, a model, or a PDF to leave a note.</li>
         <li><b>Phone:</b> drag or turn your phone to look, tap the floor to walk, tap a surface to leave a note.</li>
-        <li><b>Quest / headset:</b> press "VR", point and pull the trigger. Left stick walks, right stick turns, A or X toggles your mic.</li>
-        <li><b>Cardboard:</b> press "VR", aim the ring with your head, and press the Cardboard button to walk to the floor spot, open a note, or press a button.</li>
-        <li><b>Fly:</b> once inside, press <b>Fly</b> to float freely through the room and over models.</li>
+        <li><b>Quest / headset:</b> press VR, point and pull the trigger. Left stick walks, right stick turns, A or X toggles your mic.</li>
+        <li><b>Cardboard:</b> press VR, aim the ring with your head, and press the Cardboard button to walk to the floor spot, open a note, or press a button.</li>
+        <li><b>Fly:</b> once inside, press Fly to float freely through the hall and over models.</li>
       </ul>
     </details>
   </div>
 </div>
 
+<!-- Icons -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></symbol>
+  <symbol id="i-slash" viewBox="0 0 24 24"><path d="M4 4l16 16"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M5 4h14v10l-6 6H5z"/><path d="M13 20v-6h6M12 8v5M9.5 10.5h5"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"/></symbol>
+  <symbol id="i-fly" viewBox="0 0 24 24"><path d="M3 13.5c3.5-1 6.5-.5 9 1.5 2.5-2 5.5-2.5 9-1.5M12 15V5M8.5 8.5 12 5l3.5 3.5"/></symbol>
+  <symbol id="i-cube" viewBox="0 0 24 24"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></symbol>
+  <symbol id="i-invite" viewBox="0 0 24 24"><circle cx="9.5" cy="8" r="3.5"/><path d="M3 20c.5-3.5 3-5.5 6.5-5.5S15.5 16.5 16 20M18.5 8v6M15.5 11h6"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.6M12 17h.01"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19.5c.4-3.2 2.6-5 5.5-5s5.1 1.8 5.5 5M16 5.5a3 3 0 0 1 0 6M17.5 14.6c1.8.6 3 2.3 3.3 4.9"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M6 14.5 12 8.5l6 6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
+</svg>
+
 <!-- HUD -->
 <div id="hud" hidden>
   <div class="topbar">
-    <button id="peopleBtn" class="pill room-pill"><span class="dot live"></span><span id="roomLabel"></span><span class="count">· <span id="peopleCount">1</span></span></button>
+    <button id="peopleBtn" class="chip room-chip" title="People and room"><span class="dot live"></span><span id="roomLabel"></span><span class="count"><svg class="ico sm"><use href="#i-people"/></svg><span id="peopleCount">1</span></span></button>
     <div class="row">
-      <button id="objectsBtn" class="pill">Objects</button>
-      <button id="shareBtn" class="pill">Invite</button>
-      <button id="helpBtn" class="pill icon" aria-label="Help">?</button>
+      <button id="objectsBtn" class="chip" title="Objects in this room"><svg class="ico"><use href="#i-cube"/></svg><span class="lbl">Objects</span></button>
+      <button id="shareBtn" class="chip" title="Invite people"><svg class="ico"><use href="#i-invite"/></svg><span class="lbl">Invite</span></button>
+      <button id="helpBtn" class="chip icon" aria-label="Help" title="Help"><svg class="ico"><use href="#i-help"/></svg></button>
     </div>
   </div>
-  <div class="bottombar">
-    <button id="micBtn" class="round" aria-label="Microphone"><span class="mic-icon"></span><span class="meter" id="micMeter"></span></button>
-    <button id="addBtn" class="round add" aria-label="Add a sticky note">+</button>
-    <button id="uploadBtn" class="round" aria-label="Upload a model or PDF"><span class="upload-icon"></span></button>
-    <button id="flyBtn" class="round fly" aria-label="Fly mode" aria-pressed="false">Fly</button>
-  </div>
+  <nav class="dock" aria-label="Actions">
+    <button id="micBtn" class="dock-btn" aria-label="Microphone"><span class="dock-ico"><svg class="ico"><use href="#i-mic"/></svg><svg class="ico slash"><use href="#i-slash"/></svg><span class="meter" id="micMeter"></span></span><span class="dock-lbl" id="micLbl">Mic</span></button>
+    <button id="addBtn" class="dock-btn add" aria-label="Add a sticky note"><span class="dock-ico"><svg class="ico"><use href="#i-note"/></svg></span><span class="dock-lbl">Note</span></button>
+    <button id="uploadBtn" class="dock-btn" aria-label="Upload a model or PDF"><span class="dock-ico"><svg class="ico"><use href="#i-upload"/></svg></span><span class="dock-lbl">Upload</span></button>
+    <button id="flyBtn" class="dock-btn fly" aria-label="Fly mode" aria-pressed="false"><span class="dock-ico"><svg class="ico"><use href="#i-fly"/></svg></span><span class="dock-lbl">Fly</span></button>
+  </nav>
   <div id="flyPad" class="flypad" hidden>
-    <button id="flyUp" class="round" aria-label="Fly up">&#9650;</button>
-    <button id="flyDown" class="round" aria-label="Fly down">&#9660;</button>
+    <button id="flyUp" class="chip icon big" aria-label="Fly up"><svg class="ico"><use href="#i-up"/></svg></button>
+    <button id="flyDown" class="chip icon big" aria-label="Fly down"><svg class="ico"><use href="#i-down"/></svg></button>
   </div>
   <div id="crosshair"></div>
 </div>
 
 <!-- Composer -->
 <div id="composer" class="overlay sheet-wrap" hidden>
-  <form class="sheet" id="composerForm">
+  <form class="sheet glass" id="composerForm">
     <div class="sheet-head"><b id="composerTitle">New sticky note</b><button type="button" class="x" data-close>&times;</button></div>
     <textarea id="noteText" rows="4" maxlength="280" placeholder="Write your comment..."></textarea>
     <div class="row between"><div id="noteColors" class="swatches"></div><span id="charCount" class="fine">0/280</span></div>
@@ -134,7 +156,7 @@
 
 <!-- Note detail -->
 <div id="detail" class="overlay sheet-wrap" hidden>
-  <div class="sheet">
+  <div class="sheet glass">
     <div class="sheet-head"><b>Sticky note</b><button type="button" class="x" data-close>&times;</button></div>
     <div id="detailPaper" class="paper"></div>
     <p id="detailMeta" class="fine"></p>
@@ -148,11 +170,11 @@
 
 <!-- Upload -->
 <div id="upload" class="overlay sheet-wrap" hidden>
-  <form class="sheet" id="uploadForm">
+  <form class="sheet glass" id="uploadForm">
     <div class="sheet-head"><b>Add a model or document</b><button type="button" class="x" data-close>&times;</button></div>
     <label class="drop" id="dropZone">
       <input id="fileInput" type="file" accept=".glb,.gltf,.obj,.pdf,model/gltf-binary,application/pdf">
-      <span id="dropLabel"><b>Choose a file</b><br><span class="fine">.glb, .gltf, .obj (3D models) or .pdf</span></span>
+      <span id="dropLabel"><b>Choose a file</b><br><span class="fine">.glb, .gltf or .obj models, or a .pdf</span></span>
     </label>
     <div id="uploadProgress" class="progress" hidden><div></div></div>
     <p id="uploadMsg" class="fine" role="status"></p>
@@ -171,7 +193,7 @@
 
 <!-- Generic panel (people, objects, invite, help) -->
 <div id="panel" class="overlay sheet-wrap" hidden>
-  <div class="sheet">
+  <div class="sheet glass">
     <div class="sheet-head"><b id="panelTitle"></b><button type="button" class="x" data-close>&times;</button></div>
     <div id="panelBody"></div>
   </div>
