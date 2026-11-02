@@ -11,6 +11,18 @@
     return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
   }
 
+  // A-Frame's touch-to-look reads the first finger anywhere on screen, so holding the joystick
+  // would block looking around. Make it follow only the finger touching the 3D view.
+  (function patchLookControls() {
+    const LC = AFRAME.components['look-controls'] && AFRAME.components['look-controls'].Component.prototype;
+    if (!LC || LC.__touchPatched) return;
+    const onStart = LC.onTouchStart, onMove = LC.onTouchMove;
+    const own = (evt) => ({ touches: evt.targetTouches || evt.touches, preventDefault: () => evt.preventDefault() });
+    LC.onTouchStart = function (evt) { return onStart.call(this, own(evt)); };
+    LC.onTouchMove = function (evt) { return onMove.call(this, own(evt)); };
+    LC.__touchPatched = true;
+  })();
+
   // Keeps an entity's Y axis upright and turns it to face the viewer (name tags).
   AFRAME.registerComponent('billboard', {
     tick: function () {
@@ -47,6 +59,7 @@
       this.axisL = { x: 0, y: 0 };
       this.axisR = { x: 0, y: 0 };
       this.vertical = 0;
+      this.joy = { x: 0, y: 0 }; // on-screen joystick (phones and tablets)
       this.snapReady = true;
       this.glide = null;
       this.fwd = new THREE.Vector3();
@@ -117,6 +130,9 @@
 
     setVertical: function (v) { this.vertical = v; },
 
+    // x: -1 (left) .. 1 (right), y: -1 (forward) .. 1 (back), like a thumbstick
+    setJoystick: function (x, y) { this.joy.x = x; this.joy.y = y; },
+
     snapTurn: function (deg) {
       const rig = this.el.object3D;
       const before = this.cameraWorld(new THREE.Vector3());
@@ -138,6 +154,7 @@
       let s = (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
       if (Math.abs(this.axisL.y) > 0.15) f += -this.axisL.y;
       if (Math.abs(this.axisL.x) > 0.15) s += this.axisL.x;
+      if (Math.hypot(this.joy.x, this.joy.y) > 0.12) { f += -this.joy.y; s += this.joy.x; }
       let v = 0;
       if (fly) {
         v = (k.Space ? 1 : 0) - (k.ShiftLeft || k.ShiftRight || k.KeyC ? 1 : 0) + this.vertical;

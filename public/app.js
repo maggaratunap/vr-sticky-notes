@@ -232,9 +232,10 @@
     joined = true;
     updateMicUI();
     placeAtSpawn();
+    if (TOUCH_UI) showJoystick(true);
     connect();
     startPoseLoop();
-    if (DEVICE === 'phone') toast('Tap the floor to walk. Tap a board, model or PDF to leave a note.', 4200);
+    if (TOUCH_UI) toast('Use the joystick to walk and drag to look around. Tap a board, model or PDF to leave a note.', 4600);
     else if (DEVICE === 'desktop') toast('Drag to look, WASD to move. Click a board, model or PDF to leave a note.', 4200);
     else toast('Press VR to enter. Point and pull the trigger to leave a note.', 4200);
   }
@@ -1523,7 +1524,7 @@
       body.innerHTML = `
         <h4>Leave a note</h4><p>Tap, click, point at, or gaze at a pin board, a model, or a PDF page. Notes on a model move with it. Notes on a PDF belong to the page they were placed on. Tap a note to vote (+1), edit, or delete it.</p>
         <h4>Models and documents</h4><p>Use the upload button to add a .glb, .gltf or .obj model, or a PDF. Open <b>Objects</b> to move, turn, resize or delete them. Turn PDF pages with the buttons under the page.</p>
-        <h4>Move</h4><p>Phone: tap the floor to walk, drag or turn your phone to look. Computer: WASD or arrow keys, drag to look, Q / E to turn. Headset: left stick walks, right stick turns, or point at the floor and pull the trigger.</p>
+        <h4>Move</h4><p>Phone and tablet: push the joystick at the bottom right to walk (drag the view with another finger to look around at the same time), or tap the floor to walk there. Computer: WASD or arrow keys, drag to look, Q / E to turn. Headset: left stick walks, right stick turns, or point at the floor and pull the trigger.</p>
         <h4>Talk</h4><p>Use the mic button (or A / X on a Quest controller). Voices are louder when people stand closer. A green ring shows who is talking.</p>
         <h4>Fly</h4><p>Press <b>Fly</b> to float freely: you move in the direction you look, including up and down. Computer: WASD, Space to rise, Shift to sink, F to toggle. Phone: tap the sky to fly toward it, hold the arrow buttons to rise or sink. Headset: left stick flies where you look, right stick up / down rises and sinks, B or Y toggles. Cardboard: turn Fly on before entering VR, then aim at the sky and press the button. Tap or aim at the floor to land; turning Fly off brings you down.</p>
         <h4>Room shortcuts</h4><p>In <b>Objects</b>, choose <b>Add room shortcut</b> to create a new room (or link an existing one). A doorway appears in front of you. Go through it by tapping, clicking, or pointing at it. You stay in VR when you switch rooms.</p>
@@ -1727,7 +1728,7 @@
     if (!on) msg = 'Landing. Fly mode off.';
     else if (scene.is('vr-mode') && gazeMode) msg = 'Flying: aim up or ahead and press the button to fly there. Aim at the floor to land.';
     else if (scene.is('vr-mode') || DEVICE === 'headset') msg = 'Flying: left stick moves where you look, right stick up/down rises and sinks. B or Y to land.';
-    else if (DEVICE === 'phone') msg = 'Flying: tap the sky to fly toward it, hold the arrows to rise or sink, tap the floor to land.';
+    else if (TOUCH_UI) msg = 'Flying: the joystick moves you where you look. Hold the arrows to rise or sink, tap the floor to land.';
     else msg = 'Flying: WASD moves where you look, Space rises, Shift sinks, click the floor to land. F toggles flying.';
     toast(msg, on ? 5000 : 1800);
   }
@@ -1744,6 +1745,43 @@
     if (e.code === 'KeyF' && joined && !e.repeat && !/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) setFly(!flying);
   });
   ['#leftHand', '#rightHand'].forEach((s) => ['bbuttondown', 'ybuttondown'].forEach((ev) => $(s).addEventListener(ev, () => setFly(!flying))));
+
+  // ---------------- on-screen joystick (phones and tablets, outside VR) ----------------
+  const TOUCH_UI = DEVICE === 'phone' || (DEVICE !== 'headset' && window.matchMedia && matchMedia('(pointer: coarse)').matches);
+  const joy = $('#joystick');
+  const knob = joy.querySelector('.joy-knob');
+  const JOY_R = 40; // how far the knob can travel, in px
+  let joyPointer = null; let joyCx = 0; let joyCy = 0;
+  function showJoystick(on) {
+    joy.hidden = !on;
+    document.body.classList.toggle('has-joystick', on);
+    if (!on) releaseJoystick();
+  }
+  function moveJoystick(e) {
+    let dx = e.clientX - joyCx; let dy = e.clientY - joyCy;
+    const len = Math.hypot(dx, dy);
+    if (len > JOY_R) { dx *= JOY_R / len; dy *= JOY_R / len; }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    if (mover()) mover().setJoystick(dx / JOY_R, dy / JOY_R);
+  }
+  function releaseJoystick() {
+    joyPointer = null;
+    knob.style.transform = '';
+    joy.classList.remove('active');
+    if (mover()) mover().setJoystick(0, 0);
+  }
+  joy.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    joyPointer = e.pointerId;
+    try { joy.setPointerCapture(e.pointerId); } catch (err) { /* older browsers */ }
+    const r = joy.getBoundingClientRect();
+    joyCx = r.left + r.width / 2; joyCy = r.top + r.height / 2;
+    joy.classList.add('active');
+    moveJoystick(e);
+  });
+  joy.addEventListener('pointermove', (e) => { if (e.pointerId === joyPointer) moveJoystick(e); });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((t) => joy.addEventListener(t, (e) => { if (e.pointerId === joyPointer) releaseJoystick(); }));
+  joy.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // Flying on a phone or computer: tap or click empty sky to fly toward it.
   const skyRay = new THREE.Raycaster();
@@ -1797,6 +1835,7 @@
   else scene.addEventListener('loaded', () => scene.canvas.addEventListener('touchend', gazeSelect), { once: true });
 
   scene.addEventListener('enter-vr', () => {
+    showJoystick(false);
     const useGaze = DEVICE === 'phone';
     setGazeMode(useGaze);
     setHandRays(!useGaze);
@@ -1805,6 +1844,7 @@
     else vrToast(me.muted ? 'Mic off - press A or X to talk' : 'Mic on', 2500);
   });
   scene.addEventListener('exit-vr', () => {
+    if (TOUCH_UI && joined) showJoystick(true);
     setGazeMode(false);
     setHandRays(false);
     closeVrKeyboard(); closeVrPanel();

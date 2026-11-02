@@ -154,6 +154,24 @@ details.fine li { margin-bottom: 6px; }
 .meter.active { opacity: 1; }
 
 .flypad { position: absolute; right: 16px; bottom: calc(96px + var(--safe-b)); display: grid; gap: 10px; pointer-events: auto; }
+/* With the joystick showing (phones, tablets) the fly arrows sit above the dock on the left */
+.has-joystick .flypad { right: auto; left: 18px; bottom: calc(110px + var(--safe-b)); }
+
+/* On-screen joystick */
+.joystick {
+  position: absolute; right: 18px; bottom: calc(18px + var(--safe-b)); width: 124px; height: 124px; border-radius: 50%;
+  background: var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--shadow); pointer-events: auto;
+  -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4);
+  touch-action: none; user-select: none; -webkit-user-select: none; display: grid; place-items: center;
+}
+.joystick::before { content: ""; position: absolute; inset: 22px; border-radius: 50%; border: 1px dashed rgba(38, 43, 51, 0.18); }
+.joy-knob {
+  width: 52px; height: 52px; border-radius: 50%; background: #fff; border: 1px solid var(--hairline);
+  box-shadow: 0 6px 14px -6px rgba(23, 33, 52, 0.55); transition: transform 0.12s ease-out; will-change: transform;
+}
+.joystick.active .joy-knob { transition: none; background: var(--blueprint); border-color: var(--blueprint); }
+/* VR button moves above the joystick */
+.has-joystick .a-enter-vr { bottom: calc(156px + var(--safe-b)) !important; right: 26px !important; }
 .flypad .chip { touch-action: none; user-select: none; -webkit-user-select: none; }
 .flypad .chip.held { background: var(--blueprint); color: #fff; border-color: var(--blueprint); }
 
@@ -225,4 +243,17 @@ details.fine li { margin-bottom: 6px; }
   .x:hover { background: rgba(38, 43, 51, 0.12); }
   .tools button:hover { border-color: rgba(47, 111, 196, 0.45); color: var(--blueprint-ink); }
   .link:hover { color: var(--blueprint); }
+}
+
+/* Narrow phones: keep the dock and the joystick side by side without overlapping */
+@media (max-width: 430px) {
+  .has-joystick .dock-btn { width: 56px; }
+  .joystick { width: 112px; height: 112px; right: 12px; }
+  .joystick::before { inset: 20px; }
+}
+@media (max-width: 380px) {
+  .has-joystick .dock-btn { width: 52px; }
+  .has-joystick .dock { left: 10px; }
+  .joystick { width: 104px; height: 104px; right: 10px; }
+  .joy-knob { width: 46px; height: 46px; }
 }

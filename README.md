@@ -5,7 +5,7 @@ A multi-user VR space that runs in the browser. Create as many rooms as you need
 | Device | How it works |
 |---|---|
 | Computer (Chrome, Edge, Firefox, Safari) | Drag to look, WASD / arrows to move, Q / E to turn, click a surface to post a note |
-| Phone (iPhone, Android) | Drag or turn the phone to look, tap the floor to walk, tap a surface (or press **+**) to post |
+| Phone / tablet (iPhone, Android, iPad) | On-screen joystick to walk (drag with another finger to look around at the same time), or tap the floor to walk there. Tap a surface (or press **Note**) to post |
 | Meta Quest / other WebXR headsets | Press **VR**. Point and pull the trigger. Left stick walks, right stick snap-turns, **A** or **X** toggles your mic. Notes are typed on a floating keyboard with quick phrases |
 | Cardboard-style phone VR (Android Chrome) | Press **VR**, aim the ring in the middle of your view with your head, and press the Cardboard button: on the floor to walk there, on a surface to leave a note, on a button or doorway to use it |
 
