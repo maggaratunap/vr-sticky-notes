@@ -231,6 +231,7 @@
     $('#roomLabel').textContent = selectedRoom.name;
     joined = true;
     updateMicUI();
+    placeAtSpawn();
     connect();
     startPoseLoop();
     if (DEVICE === 'phone') toast('Tap the floor to walk. Tap a board, model or PDF to leave a note.', 4200);
@@ -549,11 +550,20 @@
 
   function updateVolumes(myPos) {
     for (const p of peers.values()) {
-      if (!p.audio) continue;
       const pos = p.el.object3D.position;
       const d = Math.hypot(pos.x - myPos.x, pos.z - myPos.z);
+      // hide an avatar you are standing inside, so it doesn't block your view
+      p.el.object3D.visible = d > 0.55 || Math.abs(pos.y - myPos.y) > 0.8;
+      if (!p.audio) continue;
       try { p.audio.volume = d < 2.5 ? 1 : Math.max(0.15, 1 - (d - 2.5) / 14); } catch (e) { /* iOS */ }
     }
+  }
+
+  // Arrive at a slightly random spot so people joining together don't stand inside each other.
+  function placeAtSpawn() {
+    const rig = $('#rig').object3D;
+    rig.position.set(+(Math.random() * 5 - 2.5).toFixed(2), 0, +(5.2 + Math.random() * 1.8).toFixed(2));
+    rig.rotation.set(0, 0, 0);
   }
 
   // ---------------- shared objects: models & PDFs ----------------
@@ -579,6 +589,8 @@
       else content.setAttribute('gltf-model', `url(${it.url})`);
       content.addEventListener('click', (e) => onSurfaceClick(e, it.id));
       updateSampleVisibility();
+    } else if (it.kind === 'portal') {
+      buildPortal(rec);
     } else {
       buildPdfPanel(rec);
     }
@@ -689,6 +701,119 @@
     rec.pageLabel.setAttribute('text', { value: 'Loading...', align: 'center', color: '#1b1f27', width: 0.9, wrapCount: 14 });
     vrButton(ctl, 'Next >', 0.5, 0, 0.36, 0.11, () => turnPage(it.id, 1), { wrap: 9 });
     loadPdf(rec);
+  }
+
+  // ---------------- room shortcuts (portals) ----------------
+  function buildPortal(rec) {
+    const it = rec.data;
+    const frame = (w, h, d, x, y) => {
+      const b = el('a-box', { width: w, height: h, depth: d, position: `${x} ${y} 0` }, rec.inner);
+      b.setAttribute('material', { color: '#2b2f38', roughness: 0.6 });
+    };
+    frame(0.12, 2.36, 0.14, -0.66, 1.18);
+    frame(0.12, 2.36, 0.14, 0.66, 1.18);
+    frame(1.44, 0.14, 0.14, 0, 2.35);
+    const door = el('a-plane', { class: 'clickable item-surface portal-surface', width: 1.2, height: 2.24, position: '0 1.12 0' }, rec.inner);
+    door.setAttribute('material', { shader: 'flat', color: '#4fb3f6', opacity: 0.78, transparent: true, side: 'double' });
+    door.setAttribute('animation__glow', { property: 'material.opacity', from: 0.62, to: 0.9, dur: 1400, dir: 'alternate', loop: true, easing: 'easeInOutSine' });
+    door.addEventListener('mouseenter', () => door.setAttribute('material', 'color', '#86ccff'));
+    door.addEventListener('mouseleave', () => door.setAttribute('material', 'color', '#4fb3f6'));
+    door.addEventListener('click', (e) => { e.stopPropagation(); if (!fromDrag(e)) enterPortal(it.id); });
+    rec.content = door;
+    const sign = el('a-entity', { position: '0 2.62 0' }, rec.inner);
+    sign.setAttribute('geometry', { primitive: 'plane', width: 1.6, height: 0.3 });
+    sign.setAttribute('material', { color: '#1b1f27', shader: 'flat', side: 'double' });
+    rec.portalLabel = el('a-entity', { position: '0 0 0.005' }, sign);
+    rec.portalLabel.setAttribute('text', { value: font3d(it.name).slice(0, 40), align: 'center', color: '#ffffff', width: 1.5, wrapCount: 22 });
+    const hint = el('a-entity', { position: '0 1.12 0.01' }, rec.inner);
+    hint.setAttribute('text', { value: 'Enter room', align: 'center', color: '#ffffff', width: 1.2, wrapCount: 14 });
+    rec.size = new THREE.Vector3(1.44, 2.77, 0.14);
+  }
+
+  async function enterPortal(id) {
+    const rec = items.get(id);
+    if (!rec || !joined) return;
+    const target = rec.data.target;
+    try {
+      const r = await fetch(`/api/rooms/${encodeURIComponent(target)}`, { cache: 'no-store' });
+      if (!r.ok) return toast('That room no longer exists.', 3500);
+      const info = (await r.json()).room;
+      toast(`Going to "${info.name}"...`, 1800);
+      switchRoom(info.slug, info.name);
+    } catch (e) { toast('Could not reach that room. Check your connection.', 3500); }
+  }
+
+  // Leave this room and join another without reloading the page, so VR stays on.
+  function switchRoom(slug, name) {
+    ['#composer', '#detail', '#panel', '#upload'].forEach((s) => { if (!$(s).hidden) closeSheet(s); });
+    closeVrKeyboard(); closeVrPanel(); hideGhost();
+    const old = ws;
+    ws = null;
+    if (old) { old.onclose = null; old.onmessage = null; try { old.close(); } catch (e) { /* ignore */ } }
+    for (const id of [...peers.keys()]) removePeer(id);
+    for (const id of [...notes.keys()]) removeNote(id);
+    for (const id of [...items.keys()]) removeItem(id);
+    sendSpeaking(false);
+    speaking = false;
+    me.id = null;
+    ROOM = slug;
+    roomInfo = { slug, name: name || slug, desc: '', mine: false };
+    $('#roomLabel').textContent = roomInfo.name;
+    updatePeopleCount();
+    const u = new URL(location.href); u.searchParams.set('room', slug); history.replaceState(null, '', u);
+    placeAtSpawn();
+    reconnectDelay = 1000;
+    connect();
+  }
+
+  function showShortcut() {
+    openPanel('shortcut', 'Add a room shortcut', (body) => {
+      el('p', { class: 'fine' }, body).textContent = 'Creates a doorway in front of you. Anyone can walk through it to the other room, even in VR. A doorway back is added in the new room.';
+      const form = el('form', { class: 'create' }, body);
+      const name = el('input', { maxlength: '40', placeholder: 'New room name, e.g. Level 2 MEP review', required: '' }, form);
+      const desc = el('input', { maxlength: '140', placeholder: 'Short description (optional)' }, form);
+      const lab = el('label', { class: 'check' }, form);
+      const unl = el('input', { type: 'checkbox' }, lab);
+      lab.appendChild(document.createTextNode(' Unlisted (only reachable by link or doorway)'));
+      const go = el('button', { type: 'submit', class: 'btn primary' }, form);
+      go.textContent = 'Create room and doorway';
+      const msg = el('p', { class: 'fine' }, body);
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        go.disabled = true;
+        try {
+          const r = await fetch('/api/rooms', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name.value, desc: desc.value, unlisted: unl.checked, key: KEY, returnTo: ROOM, author: me.name })
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'Could not create the room.');
+          placePortal(data.room.slug);
+          closeSheet('#panel');
+          toast(`Room "${data.room.name}" created. Its doorway is in front of you.`, 4000);
+        } catch (err) { msg.textContent = err.message; go.disabled = false; }
+      });
+
+      el('h4', {}, body).textContent = 'Or link a room that already exists';
+      const list = el('div', { class: 'room-list' }, body);
+      el('p', { class: 'fine' }, list).textContent = 'Loading rooms...';
+      fetch('/api/rooms', { cache: 'no-store' }).then((r) => r.json()).then((d) => {
+        list.innerHTML = '';
+        const rooms = (d.rooms || []).filter((r) => r.slug !== ROOM);
+        if (!rooms.length) { el('p', { class: 'fine' }, list).textContent = 'No other rooms yet.'; return; }
+        for (const r of rooms) {
+          const b = el('button', { type: 'button', class: 'room-row' }, list);
+          el('b', {}, b).textContent = r.name;
+          el('span', { class: 'meta' }, b).textContent = `Add a doorway to this room · ${roomMeta(r)}`;
+          b.onclick = () => { placePortal(r.slug); closeSheet('#panel'); toast(`Doorway to "${r.name}" placed in front of you.`); };
+        }
+      }).catch(() => { list.innerHTML = ''; el('p', { class: 'fine' }, list).textContent = 'Could not load rooms.'; });
+    });
+  }
+
+  function placePortal(target) {
+    const f = viewerFrame(2.6);
+    send({ type: 'portal-add', target, p: f.p, ry: f.ry });
   }
 
   function layoutPdf(rec, aspect) {
@@ -1174,15 +1299,17 @@
         const head = el('div', { class: 'head' }, li);
         el('b', {}, head).textContent = itemTitle(d);
         let info;
-        if (d.kind === 'pdf') info = `PDF · ${rec.pages ? `page ${d.page} of ${rec.pages}` : 'loading'}`;
+        if (d.kind === 'portal') info = 'Doorway to another room';
+        else if (d.kind === 'pdf') info = `PDF · ${rec.pages ? `page ${d.page} of ${rec.pages}` : 'loading'}`;
         else if (rec.size) {
           const s = d.s || 1;
           info = `3D model · ${(rec.size.x * s).toFixed(1)} x ${(rec.size.z * s).toFixed(1)} x ${(rec.size.y * s).toFixed(1)} m · ${Math.abs(s - 1) < 1e-4 ? 'real scale' : `scale ${s < 1 ? '1:' + +(1 / s).toPrecision(3) : s.toPrecision(3) + 'x'}`}`;
         } else info = '3D model · loading';
         el('span', { class: 'meta' }, head).textContent = d.author;
-        el('div', { class: 'meta' }, li).textContent = `${info} · ${fmtMB(d.size || 0)}`;
+        el('div', { class: 'meta' }, li).textContent = d.kind === 'portal' ? info : `${info} · ${fmtMB(d.size || 0)}`;
         const tools = el('div', { class: 'tools' }, li);
         const tool = (label, fn, cls, aria) => { const b = el('button', { type: 'button', class: cls || '', 'aria-label': aria || label }, tools); b.textContent = label; b.onclick = fn; return b; };
+        if (d.kind === 'portal') tool('Enter room', () => enterPortal(d.id));
         tool('Go to', () => { closeSheet('#panel'); goTo(d.id); });
         tool('Bring here', () => { bringHere(d.id); });
         tool('Turn left', () => itemPatch(d.id, { ry: ((d.ry || 0) + 15) % 360 }));
@@ -1192,16 +1319,20 @@
         if (d.kind === 'model') {
           tool('1:1', () => itemPatch(d.id, { s: 1 }), '', 'Real scale');
           tool('Fit 6 m', () => { if (rec.size) itemPatch(d.id, { s: +(6 / Math.max(rec.size.x, rec.size.y, rec.size.z)).toPrecision(4) }); }, '', 'Fit to 6 metres');
-        } else {
+        } else if (d.kind === 'pdf') {
           tool('Prev page', () => turnPage(d.id, -1));
           tool('Next page', () => turnPage(d.id, 1));
         }
         if (d.mine || me.isAdmin) tool('Delete', () => deleteItem(d.id), 'danger');
       }
-      const add = el('button', { class: 'btn primary', type: 'button' }, body);
+      const actions = el('div', { class: 'actions' }, body);
+      actions.style.marginTop = '14px';
+      const add = el('button', { class: 'btn primary', type: 'button' }, actions);
       add.textContent = 'Upload a model or PDF';
-      add.style.cssText = 'width:100%;margin-top:14px';
       add.onclick = () => { closeSheet('#panel'); openUpload(); };
+      const portal = el('button', { class: 'btn', type: 'button' }, actions);
+      portal.textContent = 'Add room shortcut';
+      portal.onclick = showShortcut;
     });
   }
 
@@ -1234,7 +1365,8 @@
         <h4>Models and documents</h4><p>Use the upload button to add a .glb, .gltf or .obj model, or a PDF. Open <b>Objects</b> to move, turn, resize or delete them. Turn PDF pages with the buttons under the page.</p>
         <h4>Move</h4><p>Phone: tap the floor to walk, drag or turn your phone to look. Computer: WASD or arrow keys, drag to look, Q / E to turn. Headset: left stick walks, right stick turns, or point at the floor and pull the trigger.</p>
         <h4>Talk</h4><p>Use the mic button (or A / X on a Quest controller). Voices are louder when people stand closer. A green ring shows who is talking.</p>
-        <h4>VR</h4><p>Press the VR button at the bottom right. In Cardboard, hold your gaze on something for a moment to select it.</p>`;
+        <h4>Room shortcuts</h4><p>In <b>Objects</b>, choose <b>Add room shortcut</b> to create a new room (or link an existing one). A doorway appears in front of you. Go through it by tapping, clicking, or pointing at it. You stay in VR when you switch rooms.</p>
+        <h4>VR</h4><p>Press the VR button at the bottom right. In Cardboard, aim the ring in the middle of your view and press the Cardboard button: on the floor to walk there, on a surface to leave a note, or on a button or doorway to use it. Turn by turning your head.</p>`;
     });
   }
 
@@ -1252,7 +1384,7 @@
   const centerRay = new THREE.Raycaster();
   function addAtCenter() {
     const targets = [];
-    document.querySelectorAll('.pinnable, .item-surface').forEach((n) => { if (n.object3D && n.getAttribute('visible') !== false) targets.push(n.object3D); });
+    document.querySelectorAll('.pinnable, .item-surface:not(.portal-surface)').forEach((n) => { if (n.object3D && n.getAttribute('visible') !== false) targets.push(n.object3D); });
     centerRay.setFromCamera({ x: 0, y: 0 }, scene.camera);
     centerRay.far = 80;
     const hit = centerRay.intersectObjects(targets, true)[0];
@@ -1400,18 +1532,50 @@
     hand.addEventListener('controllerconnected', () => { if (scene.is('vr-mode')) hand.setAttribute('raycaster', 'enabled', true); });
     ['abuttondown', 'xbuttondown'].forEach((ev) => hand.addEventListener(ev, () => setMuted(!me.muted)));
   });
-  scene.addEventListener('enter-vr', () => {
+  // Cardboard: the ring in the middle of your view is the pointer. Pressing the Cardboard
+  // button (which taps the screen) selects whatever it points at: the floor to walk there,
+  // a surface to leave a note, a note, or a button.
+  let gazeMode = false;
+  let lastGazeSelect = 0;
+  function gazeSelect() {
+    if (!gazeMode) return;
+    const now = Date.now();
+    if (now - lastGazeSelect < 300) return; // one press can arrive as both an XR and a touch event
+    lastGazeSelect = now;
     const gaze = $('#gaze');
+    gaze.emit('gazeselect', null, false);
+    const rc = gaze.components.raycaster;
+    if (!rc) return;
+    rc.checkIntersections && rc.checkIntersections();
+    const target = rc.intersectedEls[0];
+    if (!target) return;
+    target.emit('click', { intersection: rc.getIntersection(target), cursorEl: gaze });
+  }
+  function onXrSelect() { gazeSelect(); }
+  function setGazeMode(on) {
+    gazeMode = on;
+    const gaze = $('#gaze');
+    gaze.setAttribute('visible', on);
+    gaze.setAttribute('raycaster', 'enabled', on);
+    const session = scene.xrSession;
+    if (session) {
+      session.removeEventListener('select', onXrSelect);
+      if (on) session.addEventListener('select', onXrSelect);
+    }
+  }
+  if (scene.canvas) scene.canvas.addEventListener('touchend', gazeSelect);
+  else scene.addEventListener('loaded', () => scene.canvas.addEventListener('touchend', gazeSelect), { once: true });
+
+  scene.addEventListener('enter-vr', () => {
     const useGaze = DEVICE === 'phone';
-    gaze.setAttribute('visible', useGaze);
-    gaze.setAttribute('raycaster', 'enabled', useGaze);
+    setGazeMode(useGaze);
     setHandRays(!useGaze);
     ['#composer', '#detail', '#panel', '#upload'].forEach((s) => { if (!$(s).hidden) closeSheet(s); });
-    vrToast(me.muted ? 'Mic off - press A or X to talk' : 'Mic on', 2500);
+    if (useGaze) vrToast('Aim the ring and press the Cardboard button', 3500);
+    else vrToast(me.muted ? 'Mic off - press A or X to talk' : 'Mic on', 2500);
   });
   scene.addEventListener('exit-vr', () => {
-    $('#gaze').setAttribute('visible', false);
-    $('#gaze').setAttribute('raycaster', 'enabled', false);
+    setGazeMode(false);
     setHandRays(false);
     closeVrKeyboard(); closeVrPanel();
   });

@@ -24,7 +24,7 @@
   <a-entity light="type: hemisphere; color: #ffffff; groundColor: #cdbfa4; intensity: 1.0"></a-entity>
   <a-entity light="type: ambient; color: #ffffff; intensity: 0.45"></a-entity>
   <a-entity light="type: directional; color: #fff6e8; intensity: 0.7" position="-3 8 4"></a-entity>
-  <a-sky color="#e9e4d8"></a-sky>
+  <a-sky color="#aad8f7"></a-sky>
 
   <!-- Floor extends past the room so full-size models can be walked through -->
   <a-plane id="floor" class="clickable floor" rotation="-90 0 0" width="120" height="120" color="#cfc6b4" material="roughness: 1"></a-plane>
@@ -72,13 +72,15 @@
     <a-entity id="cam" camera position="0 1.6 0"
       look-controls="pointerLockEnabled: false; magicWindowTrackingEnabled: true"
       wasd-controls="enabled: false">
+      <!-- Cardboard pointer: aim with your head, press the Cardboard button (screen tap) to select -->
       <a-entity id="gaze" position="0 0 -1" visible="false"
-        cursor="fuse: true; fuseTimeout: 1400"
+        cursor="fuse: false"
         raycaster="objects: .clickable; far: 80; enabled: false"
         geometry="primitive: ring; radiusInner: 0.012; radiusOuter: 0.019"
         material="color: #ffffff; shader: flat; opacity: 0.9; depthTest: false"
-        animation__fuse="property: scale; startEvents: fusing; from: 1 1 1; to: 0.35 0.35 0.35; dur: 1400; easing: linear"
-        animation__reset="property: scale; startEvents: mouseleave, click; to: 1 1 1; dur: 120"></a-entity>
+        animation__hover="property: scale; startEvents: mouseenter; to: 1.7 1.7 1.7; dur: 120"
+        animation__unhover="property: scale; startEvents: mouseleave; to: 1 1 1; dur: 120"
+        animation__press="property: material.color; startEvents: gazeselect; from: #f2b705; to: #ffffff; dur: 400"></a-entity>
       <a-entity id="vrToast" position="0 -0.32 -1" visible="false"
         geometry="primitive: plane; width: 0.62; height: 0.09"
         material="color: #1b1f27; shader: flat; opacity: 0.85; depthTest: false"
@@ -122,7 +124,7 @@
         <li><b>Computer:</b> drag to look, WASD to move, click a board, a model, or a PDF to leave a note.</li>
         <li><b>Phone:</b> drag or turn your phone to look, tap the floor to walk, tap a surface to leave a note.</li>
         <li><b>Quest / headset:</b> press "VR", point and pull the trigger. Left stick walks, right stick turns, A or X toggles your mic.</li>
-        <li><b>Cardboard:</b> press "VR" and hold your gaze on a button, the floor, or a surface.</li>
+        <li><b>Cardboard:</b> press "VR", aim the ring with your head, and press the Cardboard button to walk to the floor spot, open a note, or press a button.</li>
       </ul>
     </details>
   </div>

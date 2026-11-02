@@ -139,7 +139,34 @@ function noteFor(key, admin, n) {
 }
 function itemFor(key, slug, it) {
   const { authorKey, file, ...rest } = it;
-  return { ...rest, url: `/files/${slug}/${file}`, mine: authorKey === key };
+  if (it.kind === 'portal' && registry.has(it.target)) rest.name = registry.get(it.target).name;
+  return { ...rest, url: file ? `/files/${slug}/${file}` : null, mine: authorKey === key };
+}
+
+// A room shortcut ("portal") is an object with no file that takes people to another room.
+function makePortal(target, p, ry, author, authorKey) {
+  const reg = registry.get(target);
+  return {
+    id: newId(), kind: 'portal', fmt: 'portal', target, name: reg ? reg.name : target, file: null, size: 0,
+    p, ry, s: 1, page: 1, author, authorKey, ts: Date.now()
+  };
+}
+
+// When a room is deleted, remove shortcuts pointing to it from every other room.
+function removePortalsTo(slug) {
+  for (const other of registry.keys()) {
+    if (other === slug) continue;
+    const room = getRoom(other);
+    let changed = false;
+    for (const [id, it] of room.items) {
+      if (it.kind === 'portal' && it.target === slug) {
+        room.items.delete(id);
+        broadcast(room, { type: 'item-delete', id });
+        changed = true;
+      }
+    }
+    if (changed) scheduleSave(room);
+  }
 }
 function sendNoteToAll(room, n, type) {
   for (const ws of room.clients.values()) send(ws, { type, note: noteFor(ws.user.key, ws.user.isAdmin, n) });
@@ -283,6 +310,7 @@ async function deleteRoom(slug) {
     for (const ws of room.clients.values()) { send(ws, { type: 'room-deleted' }); ws.close(); }
     rooms.delete(slug);
   }
+  removePortalsTo(slug);
   await fsp.rm(roomDir(slug), { recursive: true, force: true });
 }
 
@@ -319,6 +347,14 @@ const server = http.createServer(async (req, res) => {
       const r = { slug, name, desc: cleanText(body.desc, 140), unlisted: !!body.unlisted, createdAt: Date.now(), creatorKey: cleanText(body.key, 64) };
       registry.set(slug, r);
       saveRegistry();
+      // Created from inside another room: put a way back in the new room, beside the arrival spot.
+      const from = cleanSlug(body.returnTo);
+      if (from && from !== slug && registry.has(from)) {
+        const room = getRoom(slug);
+        const back = makePortal(from, [3.5, 0, 6], -90, cleanText(body.author, 24) || 'Guest', r.creatorKey);
+        room.items.set(back.id, back);
+        scheduleSave(room);
+      }
       return json(res, 201, { room: roomSummary(r) });
     }
 
@@ -499,12 +535,24 @@ wss.on('connection', (ws, req) => {
         broadcast(room, { type: 'item-update', item: { id: it.id, p: it.p, ry: it.ry, s: it.s, page: it.page, by: u.name } });
         break;
       }
+      case 'portal-add': {
+        const target = cleanSlug(m.target);
+        if (!target || target === slug || !registry.has(target)) return send(ws, { type: 'error', message: 'That room does not exist.' });
+        if (room.items.size >= MAX_ITEMS_PER_ROOM) return send(ws, { type: 'error', message: 'This room has reached its object limit.' });
+        const pp = vec(m.p, 3, 50) || [0, 0, 0];
+        const ry = num(m.ry, 360) || 0;
+        const portal = makePortal(target, pp, ry, u.name, u.key);
+        room.items.set(portal.id, portal);
+        scheduleSave(room);
+        sendItemToAll(room, portal, 'item-add');
+        break;
+      }
       case 'item-delete': {
         const it = room.items.get(m.id);
         if (!it || (it.authorKey !== u.key && !u.isAdmin)) return;
         room.items.delete(it.id);
         for (const [nid, n] of room.notes) if (n.on === it.id) room.notes.delete(nid);
-        fsp.unlink(path.join(filesDir(slug), it.file)).catch(() => {});
+        if (it.file) fsp.unlink(path.join(filesDir(slug), it.file)).catch(() => {});
         scheduleSave(room);
         broadcast(room, { type: 'item-delete', id: it.id });
         break;

@@ -7,7 +7,7 @@ A multi-user VR space that runs in the browser. Create as many rooms as you need
 | Computer (Chrome, Edge, Firefox, Safari) | Drag to look, WASD / arrows to move, Q / E to turn, click a surface to post a note |
 | Phone (iPhone, Android) | Drag or turn the phone to look, tap the floor to walk, tap a surface (or press **+**) to post |
 | Meta Quest / other WebXR headsets | Press **VR**. Point and pull the trigger. Left stick walks, right stick snap-turns, **A** or **X** toggles your mic. Notes are typed on a floating keyboard with quick phrases |
-| Cardboard-style phone VR (Android Chrome) | Press **VR**, then hold your gaze on a button, the floor, or a surface for about 1.5 s |
+| Cardboard-style phone VR (Android Chrome) | Press **VR**, aim the ring in the middle of your view with your head, and press the Cardboard button: on the floor to walk there, on a surface to leave a note, on a button or doorway to use it |
 
 ## Features
 
@@ -16,6 +16,7 @@ A multi-user VR space that runs in the browser. Create as many rooms as you need
   - Models are automatically centred and set on the floor (Revit exports often sit far away at survey coordinates). Very large or very small models are resized to fit the room; one tap on **1:1** puts them back to real scale so you can walk through.
   - PDFs appear as a standing panel with **Prev / Next** buttons that work with mouse, touch, laser and gaze. The page is shared, so everyone sees the same sheet.
   - The **Objects** panel lets anyone go to, bring over, turn, or resize an object, and flip PDF pages. Only the person who uploaded it (or the admin) can delete it.
+- **Room shortcuts**: from inside a room, open **Objects > Add room shortcut** to create a new room (or pick an existing one). A doorway appears in front of you, and the new room gets a doorway back. Walking through switches rooms without reloading, so headset users stay in VR. Deleting a room also removes doorways that point to it.
 - **Sticky notes**: six colors, up to 280 characters, +1 votes, edit and delete your own. Notes placed on a model move and scale with it. Notes placed on a PDF belong to that page and only show on that page.
 - **Voice chat**: peer-to-peer audio (WebRTC). Voices fade with distance and a green ring shows who is talking.
 - **Export**: the room panel has **Download notes (CSV)** with text, author, votes, timestamps, what the note is on (room, model, or PDF and page) and position.
