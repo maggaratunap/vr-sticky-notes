@@ -289,9 +289,10 @@ async function handleUpload(req, res, slug, url) {
     }
     const p = vec((url.searchParams.get('p') || '').split(',').map(Number), 3, 50) || [0, 0, 0];
     const ry = num(Number(url.searchParams.get('ry')), 360) || 0;
+    const s0 = num(Number(url.searchParams.get('s')), 20);
     const item = {
       id, kind, fmt: ext.slice(1), name: name.replace(/\.[^.]+$/, '').slice(0, 60), file: fileName, size,
-      p, ry, s: 1, page: 1, author, authorKey: key, ts: Date.now()
+      p, ry, s: s0 && s0 >= 0.05 ? s0 : 1, page: 1, author, authorKey: key, ts: Date.now()
     };
     room.items.set(id, item);
     scheduleSave(room);

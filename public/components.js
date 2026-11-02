@@ -69,9 +69,10 @@
 
     update: function (old) {
       // Landing: when flying is switched off, glide back down to the floor.
-      if (old && old.fly && !this.data.fly && this.el.object3D.position.y > 0.001) {
+      if (old && old.fly && !this.data.fly) {
         const from = this.el.object3D.position.clone();
-        const to = from.clone(); to.y = 0;
+        const cam = this.cameraWorld(new THREE.Vector3());
+        const to = from.clone(); to.y = this.groundAt(cam.x, cam.z, from.y + 2.5);
         this.glide = { from, to, t: 0, dur: Math.min(1.2, 0.4 + from.y * 0.08) };
       }
       if (!this.data.fly) this.vertical = 0;
@@ -81,14 +82,29 @@
       return this.data.camera.object3D.getWorldPosition(out);
     },
 
-    // Move the rig so the viewer's head ends up above (x, z). In fly mode this also lands you.
-    glideTo: function (x, z) {
+    // Height of the walkable surface (floor, steps, stage) under (x, z).
+    groundAt: function (x, z, fromY) {
+      const now = performance.now();
+      if (!this.floors || now - this.floorsAt > 1000) {
+        this.floors = [...document.querySelectorAll('.floor')].map((e) => e.object3D).filter(Boolean);
+        this.floorsAt = now;
+        if (!this.downRay) this.downRay = new THREE.Raycaster();
+      }
+      this.downRay.set(new THREE.Vector3(x, fromY, z), new THREE.Vector3(0, -1, 0));
+      this.downRay.far = fromY + 1;
+      const hit = this.downRay.intersectObjects(this.floors, true)[0];
+      return hit ? hit.point.y : 0;
+    },
+
+    // Move the rig so the viewer's head ends up above (x, z), standing on whatever is there.
+    // In fly mode this also lands you.
+    glideTo: function (x, z, y) {
       this.cameraWorld(this.camPos);
       const from = this.el.object3D.position.clone();
       const to = from.clone();
       to.x += x - this.camPos.x;
       to.z += z - this.camPos.z;
-      to.y = 0;
+      to.y = y != null ? y : this.groundAt(x, z, 20);
       this.glide = { from, to, t: 0 };
     },
 
@@ -156,8 +172,14 @@
         if (g.t >= 1) this.glide = null;
       }
 
+      // Walking: stand on the floor, steps or stage under you (step up and down smoothly).
+      if (!fly && !this.glide) {
+        this.cameraWorld(this.camPos);
+        const ground = this.groundAt(this.camPos.x, this.camPos.z, rig.position.y + 1.2);
+        rig.position.y += (ground - rig.position.y) * Math.min(1, dt * 12);
+        if (Math.abs(ground - rig.position.y) < 0.002) rig.position.y = ground;
+      }
       // Stay above the floor, under the ceiling, and inside the bounds.
-      if (!fly && !this.glide) rig.position.y = 0;
       rig.position.y = Math.max(0, Math.min(this.data.ceiling, rig.position.y));
       this.cameraWorld(this.camPos);
       const b = this.data.bounds;

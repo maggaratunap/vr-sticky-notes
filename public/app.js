@@ -270,7 +270,7 @@
         me.isAdmin = !!m.isAdmin;
         roomInfo = m.room;
         $('#roomLabel').textContent = roomInfo.name;
-        $('#roomTitle3d').setAttribute('text', { value: font3d(roomInfo.name).toUpperCase().slice(0, 40) });
+        $('#roomTitle3d').setAttribute('text', { value: font3d(roomInfo.name).toUpperCase().slice(0, 34) });
         document.title = `${roomInfo.name} - VR Sticky Notes`;
         for (const id of [...notes.keys()]) removeNote(id);
         const incoming = new Set(m.items.map((i) => i.id));
@@ -559,11 +559,43 @@
     }
   }
 
-  // Arrive at a slightly random spot so people joining together don't stand inside each other.
+  // Arrive in the centre aisle behind the benches, facing the stage. The spot is slightly random
+  // so people joining together don't stand inside each other.
   function placeAtSpawn() {
     const rig = $('#rig').object3D;
-    rig.position.set(+(Math.random() * 5 - 2.5).toFixed(2), 0, +(5.2 + Math.random() * 1.8).toFixed(2));
+    rig.position.set(+(Math.random() * 1.6 - 0.8).toFixed(2), 0, +(7 + Math.random() * 1.5).toFixed(2));
     rig.rotation.set(0, 0, 0);
+  }
+
+  // ---------------- the stage ----------------
+  // Stage top is 0.5 m high, 14 m wide, from z = -10 to -5.2. Uploads go here, facing the audience.
+  const STAGE = { y: 0.5, front: -5.2, back: -10, half: 7 };
+  function isOnStage(d) {
+    return d && Math.abs(d.p[1] - STAGE.y) < 0.05 && d.p[2] < STAGE.front && d.p[2] > STAGE.back && Math.abs(d.p[0]) < STAGE.half;
+  }
+  // Find a free spot on stage. PDFs stand left and right of centre; models take the middle first.
+  function stageSpot(kind, excludeId) {
+    const slots = kind === 'model' ? [0, -4.3, 4.3] : [-4.3, 4.3, 0, -2.2, 2.2];
+    const taken = [...items.values()].filter((r) => r.data.id !== excludeId && isOnStage(r.data));
+    for (const x of slots) {
+      if (!taken.some((r) => Math.abs(r.data.p[0] - x) < 1.9)) {
+        return { p: [x, STAGE.y, kind === 'model' ? -7.4 : -8.3], ry: 0, s: kind === 'pdf' ? 1.8 : undefined };
+      }
+    }
+    return null;
+  }
+  function putOnStage(id) {
+    const rec = items.get(id);
+    if (!rec) return;
+    const spot = stageSpot(rec.data.kind, id);
+    if (!spot) return toast('The stage is full. Move or delete something on it first.', 3500);
+    const patch = { p: spot.p, ry: spot.ry };
+    if (spot.s && (rec.data.s || 1) < spot.s) patch.s = spot.s;
+    if (rec.data.kind === 'model' && rec.size) {
+      const maxDim = Math.max(rec.size.x, rec.size.z) * (rec.data.s || 1);
+      if (maxDim > 5) patch.s = +(4.5 / Math.max(rec.size.x, rec.size.z)).toPrecision(4);
+    }
+    itemPatch(id, patch);
   }
 
   // ---------------- shared objects: models & PDFs ----------------
@@ -588,7 +620,6 @@
       if (it.fmt === 'obj') content.setAttribute('obj-model', { obj: `url(${it.url})` });
       else content.setAttribute('gltf-model', `url(${it.url})`);
       content.addEventListener('click', (e) => onSurfaceClick(e, it.id));
-      updateSampleVisibility();
     } else if (it.kind === 'portal') {
       buildPortal(rec);
     } else {
@@ -623,18 +654,7 @@
     if (rec.doc) rec.doc.destroy().catch(() => {});
     if (rec.root.parentNode) rec.root.parentNode.removeChild(rec.root);
     items.delete(id);
-    updateSampleVisibility();
     refreshPanel('objects');
-  }
-
-  function updateSampleVisibility() {
-    const sample = $('#sampleModel');
-    if (!sample) return;
-    const hasModel = [...items.values()].some((r) => r.data.kind === 'model');
-    sample.setAttribute('visible', !hasModel);
-    sample.querySelectorAll('a-box, a-cylinder').forEach((b) => b.classList.toggle('clickable', !hasModel));
-    sample.querySelectorAll('a-box, a-cylinder').forEach((b) => b.classList.toggle('pinnable', !hasModel));
-    refreshRaycasters();
   }
 
   function refreshRaycasters() {
@@ -671,7 +691,11 @@
     if (justUploaded.has(rec.data.id)) {
       justUploaded.delete(rec.data.id);
       const maxDim = Math.max(rec.size.x, rec.size.y, rec.size.z);
-      if (maxDim > 18 || maxDim < 0.3) {
+      const footprint = Math.max(rec.size.x, rec.size.z);
+      if (isOnStage(rec.data) && footprint > 5) {
+        send({ type: 'item-update', id: rec.data.id, s: +(4.5 / footprint).toPrecision(4) });
+        toast('Model resized to fit on the stage. Use "1:1" in Objects for real size.', 6000);
+      } else if (maxDim > 18 || maxDim < 0.3) {
         send({ type: 'item-update', id: rec.data.id, s: +(6 / maxDim).toPrecision(4) });
         toast(maxDim > 18 ? 'Large model: scaled down to fit the room. Use "1:1" in Objects for real size.' : 'Small model: scaled up to be visible. Use "1:1" in Objects for real size.', 6000);
       } else toast(`"${itemTitle(rec.data)}" is ready.`);
@@ -993,8 +1017,11 @@
   $('#uploadForm').addEventListener('submit', (e) => {
     e.preventDefault();
     if (!uploadFile || uploadXhr) return;
-    const f = viewerFrame(uploadFile.name.toLowerCase().endsWith('.pdf') ? 2.4 : 3);
+    const isPdf = uploadFile.name.toLowerCase().endsWith('.pdf');
+    const spot = stageSpot(isPdf ? 'pdf' : 'model');
+    const f = spot || viewerFrame(isPdf ? 2.4 : 3);
     const q = new URLSearchParams({ name: uploadFile.name, p: f.p.join(','), ry: String(f.ry) });
+    if (spot && spot.s) q.set('s', String(spot.s));
     const xhr = new XMLHttpRequest();
     uploadXhr = xhr;
     xhr.open('POST', `/api/rooms/${encodeURIComponent(ROOM)}/upload?${q}`);
@@ -1014,7 +1041,7 @@
         justUploaded.add(data.item.id);
         addItem(data.item);
         closeSheet('#upload');
-        toast(`Uploaded. Loading "${data.item.name}"...`);
+        toast(isOnStage(data.item) ? `Uploaded. "${data.item.name}" is going on the stage...` : `Uploaded. Loading "${data.item.name}" in front of you...`);
       } else {
         $('#uploadMsg').textContent = data.error || `Upload failed (${xhr.status}).`;
         $('#uploadGo').disabled = false;
@@ -1312,6 +1339,7 @@
         if (d.kind === 'portal') tool('Enter room', () => enterPortal(d.id));
         tool('Go to', () => { closeSheet('#panel'); goTo(d.id); });
         tool('Bring here', () => { bringHere(d.id); });
+        if (d.kind !== 'portal' && !isOnStage(d)) tool('Put on stage', () => putOnStage(d.id));
         tool('Turn left', () => itemPatch(d.id, { ry: ((d.ry || 0) + 15) % 360 }));
         tool('Turn right', () => itemPatch(d.id, { ry: ((d.ry || 0) + 345) % 360 }));
         tool('Smaller', () => itemPatch(d.id, { s: +((d.s || 1) / 1.25).toPrecision(5) }));
@@ -1653,14 +1681,27 @@
   // ---------------- scene wiring ----------------
   function wireScene() {
     document.querySelectorAll('.pinnable').forEach((n) => n.addEventListener('click', (e) => onSurfaceClick(e, null)));
-    $('#floor').addEventListener('click', (e) => {
+    // Floor, steps and stage: tap / click / aim there to walk to that spot (and onto the stage).
+    document.querySelectorAll('.floor').forEach((f) => f.addEventListener('click', (e) => {
       if (fromDrag(e)) return;
       const hit = e.detail && e.detail.intersection;
-      if (hit) $('#rig').components['rig-move'].glideTo(hit.point.x, hit.point.z);
-    });
-    const grid = new THREE.GridHelper(120, 120, 0xa89f8c, 0xbdb4a1);
-    grid.position.y = 0.002;
-    $('#floorGrid').object3D.add(grid);
+      if (hit) $('#rig').components['rig-move'].glideTo(hit.point.x, hit.point.z, hit.point.y);
+    }));
+    buildSeating();
+  }
+
+  // Audience benches: 4 rows on each side of a centre aisle, facing the stage.
+  function buildSeating() {
+    const root = $('#seating');
+    if (!root || root.children.length) return;
+    for (const z of [-2.6, -0.6, 1.4, 3.4]) {
+      for (const x of [-3.7, 3.7]) {
+        const seat = el('a-box', { position: `${x} 0.22 ${z}`, width: 5, height: 0.44, depth: 0.55 }, root);
+        seat.setAttribute('material', { color: '#2f3a4a', roughness: 0.9 });
+        const back = el('a-box', { position: `${x} 0.72 ${z + 0.26}`, width: 5, height: 0.56, depth: 0.08 }, root);
+        back.setAttribute('material', { color: '#243041', roughness: 0.9 });
+      }
+    }
   }
 
   $('#micBtn').addEventListener('click', () => setMuted(!me.muted));
