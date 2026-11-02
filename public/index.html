@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#1b1f27">
+  <title>VR Sticky Notes</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='4' width='24' height='24' rx='3' fill='%23f2b705' transform='rotate(-6 16 16)'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/vendor/aframe.min.js"></script>
+  <script src="/components.js"></script>
+</head>
+<body>
+
+<a-scene id="scene"
+  renderer="antialias: true; colorManagement: true"
+  xr-mode-ui="enabled: true"
+  device-orientation-permission-ui="enabled: true"
+  loading-screen="dotsColor: #1b1f27; backgroundColor: #f3eee4"
+  gltf-model="dracoDecoderPath: https://www.gstatic.com/draco/versioned/decoders/1.5.7/"
+  cursor="rayOrigin: mouse; fuse: false"
+  raycaster="objects: .clickable; far: 80">
+
+  <a-entity light="type: hemisphere; color: #ffffff; groundColor: #cdbfa4; intensity: 1.0"></a-entity>
+  <a-entity light="type: ambient; color: #ffffff; intensity: 0.45"></a-entity>
+  <a-entity light="type: directional; color: #fff6e8; intensity: 0.7" position="-3 8 4"></a-entity>
+  <a-sky color="#e9e4d8"></a-sky>
+
+  <!-- Floor extends past the room so full-size models can be walked through -->
+  <a-plane id="floor" class="clickable floor" rotation="-90 0 0" width="120" height="120" color="#cfc6b4" material="roughness: 1"></a-plane>
+  <a-entity id="floorGrid"></a-entity>
+  <a-plane position="0 2.5 -10" width="20" height="5" color="#f1ece2"></a-plane>
+  <a-plane position="-10 2.5 0" rotation="0 90 0" width="20" height="5" color="#ebe5d9"></a-plane>
+  <a-plane position="10 2.5 0" rotation="0 -90 0" width="20" height="5" color="#ebe5d9"></a-plane>
+
+  <a-entity position="0 1.75 -9.94">
+    <a-box class="clickable pinnable" width="8" height="2.6" depth="0.06" color="#c89f6b" material="roughness: 1"></a-box>
+    <a-entity id="roomTitle3d" text="value: COMMENT WALL; align: center; color: #2b2b2b; width: 5" position="0 1.55 0.04"></a-entity>
+  </a-entity>
+  <a-entity position="-9.94 1.75 0" rotation="0 90 0">
+    <a-box class="clickable pinnable" width="7" height="2.6" depth="0.06" color="#7fa6a0" material="roughness: 1"></a-box>
+    <a-entity text="value: QUESTIONS; align: center; color: #2b2b2b; width: 5" position="0 1.55 0.04"></a-entity>
+  </a-entity>
+  <a-entity position="9.94 1.75 0" rotation="0 -90 0">
+    <a-box class="clickable pinnable" width="7" height="2.6" depth="0.06" color="#b6a6cf" material="roughness: 1"></a-box>
+    <a-entity text="value: IDEAS; align: center; color: #2b2b2b; width: 5" position="0 1.55 0.04"></a-entity>
+  </a-entity>
+
+  <!-- Sample model: hidden automatically once someone uploads a 3D model to the room -->
+  <a-entity id="sampleModel" position="0 0 -2">
+    <a-box class="clickable pinnable" position="-2 1.5 -1.5" width="0.25" height="3" depth="0.25" color="#8d99ae"></a-box>
+    <a-box class="clickable pinnable" position="0 1.5 -1.5" width="0.25" height="3" depth="0.25" color="#8d99ae"></a-box>
+    <a-box class="clickable pinnable" position="2 1.5 -1.5" width="0.25" height="3" depth="0.25" color="#8d99ae"></a-box>
+    <a-box class="clickable pinnable" position="-2 1.5 1.5" width="0.25" height="3" depth="0.25" color="#8d99ae"></a-box>
+    <a-box class="clickable pinnable" position="0 1.5 1.5" width="0.25" height="3" depth="0.25" color="#8d99ae"></a-box>
+    <a-box class="clickable pinnable" position="2 1.5 1.5" width="0.25" height="3" depth="0.25" color="#8d99ae"></a-box>
+    <a-box class="clickable pinnable" position="0 3.05 -1.5" width="4.3" height="0.35" depth="0.2" color="#6c7a91"></a-box>
+    <a-box class="clickable pinnable" position="0 3.05 1.5" width="4.3" height="0.35" depth="0.2" color="#6c7a91"></a-box>
+    <a-box class="clickable pinnable" position="-2 3.05 0" width="0.2" height="0.35" depth="3.2" color="#6c7a91"></a-box>
+    <a-box class="clickable pinnable" position="2 3.05 0" width="0.2" height="0.35" depth="3.2" color="#6c7a91"></a-box>
+    <a-box class="clickable pinnable" position="0 2.55 0" width="4.6" height="0.35" depth="0.5" color="#c9d3dc" material="metalness: 0.4; roughness: 0.5"></a-box>
+    <a-cylinder class="clickable pinnable" position="1.2 2.1 0.6" rotation="0 0 90" radius="0.08" height="4" color="#d1495b"></a-cylinder>
+    <a-entity text="value: Sample model - upload your own with the upload button; align: center; color: #3a3a3a; width: 3.2" position="0 0.25 1.9"></a-entity>
+  </a-entity>
+
+  <a-entity id="items"></a-entity>
+  <a-entity id="notes"></a-entity>
+  <a-entity id="avatars"></a-entity>
+  <a-entity id="vrLayer"></a-entity>
+
+  <a-entity id="rig" position="0 0 6" rig-move="bounds: 58">
+    <a-entity id="cam" camera position="0 1.6 0"
+      look-controls="pointerLockEnabled: false; magicWindowTrackingEnabled: true"
+      wasd-controls="enabled: false">
+      <a-entity id="gaze" position="0 0 -1" visible="false"
+        cursor="fuse: true; fuseTimeout: 1400"
+        raycaster="objects: .clickable; far: 80; enabled: false"
+        geometry="primitive: ring; radiusInner: 0.012; radiusOuter: 0.019"
+        material="color: #ffffff; shader: flat; opacity: 0.9; depthTest: false"
+        animation__fuse="property: scale; startEvents: fusing; from: 1 1 1; to: 0.35 0.35 0.35; dur: 1400; easing: linear"
+        animation__reset="property: scale; startEvents: mouseleave, click; to: 1 1 1; dur: 120"></a-entity>
+      <a-entity id="vrToast" position="0 -0.32 -1" visible="false"
+        geometry="primitive: plane; width: 0.62; height: 0.09"
+        material="color: #1b1f27; shader: flat; opacity: 0.85; depthTest: false"
+        text="value: ; align: center; color: #ffffff; width: 0.6; wrapCount: 34"></a-entity>
+    </a-entity>
+    <a-entity id="leftHand" laser-controls="hand: left" raycaster="objects: .clickable; far: 80; enabled: false; lineColor: #ffffff; lineOpacity: 0.6"></a-entity>
+    <a-entity id="rightHand" laser-controls="hand: right" raycaster="objects: .clickable; far: 80; enabled: false; lineColor: #ffffff; lineOpacity: 0.6"></a-entity>
+  </a-entity>
+</a-scene>
+
+<!-- Lobby -->
+<div id="lobby" class="overlay">
+  <div class="card lobby-card">
+    <div class="brand"><span class="brand-note"></span>VR Sticky Notes</div>
+    <p class="sub">Shared rooms to talk, review models and documents, and leave sticky-note comments. Works on computers, phones, and VR headsets.</p>
+
+    <label class="field"><span>Your name</span>
+      <input id="nameInput" maxlength="24" autocomplete="nickname" placeholder="e.g. Lucky">
+    </label>
+    <div class="field"><span>Avatar color</span><div id="userColors" class="swatches"></div></div>
+
+    <div class="field">
+      <div class="row between tight"><span class="label">Rooms</span><button id="newRoomBtn" type="button" class="link">+ New room</button></div>
+      <form id="createRoom" class="create" hidden>
+        <input id="roomName" maxlength="40" placeholder="Room name, e.g. TCM 366 clash review" required>
+        <input id="roomDesc" maxlength="140" placeholder="Short description (optional)">
+        <label class="check"><input id="roomUnlisted" type="checkbox"> Unlisted (only people with the link can find it)</label>
+        <div class="actions"><button type="button" class="btn" id="cancelRoom">Cancel</button><button type="submit" class="btn primary">Create room</button></div>
+      </form>
+      <div id="roomList" class="room-list" role="listbox" aria-label="Rooms"><p class="fine">Loading rooms...</p></div>
+    </div>
+
+    <div class="actions">
+      <button id="joinMic" class="btn primary">Join with microphone</button>
+      <button id="joinMuted" class="btn">Join muted</button>
+    </div>
+    <p id="lobbyMsg" class="fine" role="status"></p>
+    <details class="fine">
+      <summary>How it works on each device</summary>
+      <ul>
+        <li><b>Computer:</b> drag to look, WASD to move, click a board, a model, or a PDF to leave a note.</li>
+        <li><b>Phone:</b> drag or turn your phone to look, tap the floor to walk, tap a surface to leave a note.</li>
+        <li><b>Quest / headset:</b> press "VR", point and pull the trigger. Left stick walks, right stick turns, A or X toggles your mic.</li>
+        <li><b>Cardboard:</b> press "VR" and hold your gaze on a button, the floor, or a surface.</li>
+      </ul>
+    </details>
+  </div>
+</div>
+
+<!-- HUD -->
+<div id="hud" hidden>
+  <div class="topbar">
+    <button id="peopleBtn" class="pill room-pill"><span class="dot live"></span><span id="roomLabel"></span><span class="count">· <span id="peopleCount">1</span></span></button>
+    <div class="row">
+      <button id="objectsBtn" class="pill">Objects</button>
+      <button id="shareBtn" class="pill">Invite</button>
+      <button id="helpBtn" class="pill icon" aria-label="Help">?</button>
+    </div>
+  </div>
+  <div class="bottombar">
+    <button id="micBtn" class="round" aria-label="Microphone"><span class="mic-icon"></span><span class="meter" id="micMeter"></span></button>
+    <button id="addBtn" class="round add" aria-label="Add a sticky note">+</button>
+    <button id="uploadBtn" class="round" aria-label="Upload a model or PDF"><span class="upload-icon"></span></button>
+  </div>
+  <div id="crosshair"></div>
+</div>
+
+<!-- Composer -->
+<div id="composer" class="overlay sheet-wrap" hidden>
+  <form class="sheet" id="composerForm">
+    <div class="sheet-head"><b id="composerTitle">New sticky note</b><button type="button" class="x" data-close>&times;</button></div>
+    <textarea id="noteText" rows="4" maxlength="280" placeholder="Write your comment..."></textarea>
+    <div class="row between"><div id="noteColors" class="swatches"></div><span id="charCount" class="fine">0/280</span></div>
+    <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn primary">Stick it</button></div>
+  </form>
+</div>
+
+<!-- Note detail -->
+<div id="detail" class="overlay sheet-wrap" hidden>
+  <div class="sheet">
+    <div class="sheet-head"><b>Sticky note</b><button type="button" class="x" data-close>&times;</button></div>
+    <div id="detailPaper" class="paper"></div>
+    <p id="detailMeta" class="fine"></p>
+    <div class="actions">
+      <button id="voteBtn" class="btn"></button>
+      <button id="editBtn" class="btn">Edit</button>
+      <button id="deleteBtn" class="btn danger">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Upload -->
+<div id="upload" class="overlay sheet-wrap" hidden>
+  <form class="sheet" id="uploadForm">
+    <div class="sheet-head"><b>Add a model or document</b><button type="button" class="x" data-close>&times;</button></div>
+    <label class="drop" id="dropZone">
+      <input id="fileInput" type="file" accept=".glb,.gltf,.obj,.pdf,model/gltf-binary,application/pdf">
+      <span id="dropLabel"><b>Choose a file</b><br><span class="fine">.glb, .gltf, .obj (3D models) or .pdf</span></span>
+    </label>
+    <div id="uploadProgress" class="progress" hidden><div></div></div>
+    <p id="uploadMsg" class="fine" role="status"></p>
+    <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button id="uploadGo" type="submit" class="btn primary" disabled>Upload to room</button></div>
+    <details class="fine">
+      <summary>Bringing in a Revit model or drawings</summary>
+      <ul>
+        <li><b>3D model:</b> in Revit, open a 3D view and use File &gt; Export &gt; FBX. Open the FBX in Blender (free) and use File &gt; Export &gt; glTF 2.0, format <i>glTF Binary (.glb)</i>. A Revit glTF exporter add-in works too.</li>
+        <li><b>Keep it light:</b> hide furniture, site, and fine detail you do not need. Files under about 30 MB load well on phones and headsets.</li>
+        <li><b>Drawings and sheets:</b> print or export them to PDF. Everyone sees the same page, and notes stick to the page they were placed on.</li>
+        <li>The model appears in front of you. Use <b>Objects</b> to move, turn, resize, or switch between real scale and fit-to-room.</li>
+      </ul>
+    </details>
+  </form>
+</div>
+
+<!-- Generic panel (people, objects, invite, help) -->
+<div id="panel" class="overlay sheet-wrap" hidden>
+  <div class="sheet">
+    <div class="sheet-head"><b id="panelTitle"></b><button type="button" class="x" data-close>&times;</button></div>
+    <div id="panelBody"></div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="audioBin" hidden></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
