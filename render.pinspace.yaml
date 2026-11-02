@@ -4,15 +4,19 @@ services:
     runtime: node
     branch: pinspace-render
     region: oregon
-    plan: free
+    plan: 0.5c-512mb
     buildCommand: cd pinspace && npm ci && npm run build
     startCommand: cd pinspace && npm start
     healthCheckPath: /healthz
     autoDeployTrigger: commit
+    disk:
+      name: pinspace-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_VERSION
         value: 24.22.1
       - key: DATA_DIR
-        value: /tmp/pinspace-data
+        value: /var/data/pinspace
       - key: STORAGE_MODE
-        value: preview
+        value: persistent
