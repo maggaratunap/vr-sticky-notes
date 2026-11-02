@@ -1365,6 +1365,7 @@
         <h4>Models and documents</h4><p>Use the upload button to add a .glb, .gltf or .obj model, or a PDF. Open <b>Objects</b> to move, turn, resize or delete them. Turn PDF pages with the buttons under the page.</p>
         <h4>Move</h4><p>Phone: tap the floor to walk, drag or turn your phone to look. Computer: WASD or arrow keys, drag to look, Q / E to turn. Headset: left stick walks, right stick turns, or point at the floor and pull the trigger.</p>
         <h4>Talk</h4><p>Use the mic button (or A / X on a Quest controller). Voices are louder when people stand closer. A green ring shows who is talking.</p>
+        <h4>Fly</h4><p>Press <b>Fly</b> to float freely: you move in the direction you look, including up and down. Computer: WASD, Space to rise, Shift to sink, F to toggle. Phone: tap the sky to fly toward it, hold the arrow buttons to rise or sink. Headset: left stick flies where you look, right stick up / down rises and sinks, B or Y toggles. Cardboard: turn Fly on before entering VR, then aim at the sky and press the button. Tap or aim at the floor to land; turning Fly off brings you down.</p>
         <h4>Room shortcuts</h4><p>In <b>Objects</b>, choose <b>Add room shortcut</b> to create a new room (or link an existing one). A doorway appears in front of you. Go through it by tapping, clicking, or pointing at it. You stay in VR when you switch rooms.</p>
         <h4>VR</h4><p>Press the VR button at the bottom right. In Cardboard, aim the ring in the middle of your view and press the Cardboard button: on the floor to walk there, on a surface to leave a note, or on a button or doorway to use it. Turn by turning your head.</p>`;
     });
@@ -1532,6 +1533,50 @@
     hand.addEventListener('controllerconnected', () => { if (scene.is('vr-mode')) hand.setAttribute('raycaster', 'enabled', true); });
     ['abuttondown', 'xbuttondown'].forEach((ev) => hand.addEventListener(ev, () => setMuted(!me.muted)));
   });
+  // ---------------- fly mode ----------------
+  let flying = false;
+  const mover = () => $('#rig').components['rig-move'];
+  function setFly(on) {
+    flying = on;
+    $('#rig').setAttribute('rig-move', 'fly', on);
+    $('#flyBtn').setAttribute('aria-pressed', String(on));
+    $('#flyPad').hidden = !on;
+    if (!on && mover()) mover().setVertical(0);
+    let msg;
+    if (!on) msg = 'Landing. Fly mode off.';
+    else if (scene.is('vr-mode') && gazeMode) msg = 'Flying: aim up or ahead and press the button to fly there. Aim at the floor to land.';
+    else if (scene.is('vr-mode') || DEVICE === 'headset') msg = 'Flying: left stick moves where you look, right stick up/down rises and sinks. B or Y to land.';
+    else if (DEVICE === 'phone') msg = 'Flying: tap the sky to fly toward it, hold the arrows to rise or sink, tap the floor to land.';
+    else msg = 'Flying: WASD moves where you look, Space rises, Shift sinks, click the floor to land. F toggles flying.';
+    toast(msg, on ? 5000 : 1800);
+  }
+  $('#flyBtn').addEventListener('click', (e) => { setFly(!flying); e.currentTarget.blur(); });
+  [['#flyUp', 1], ['#flyDown', -1]].forEach(([sel, dir]) => {
+    const b = $(sel);
+    const start = (e) => { e.preventDefault(); b.classList.add('held'); if (mover()) mover().setVertical(dir); };
+    const stop = () => { b.classList.remove('held'); if (mover()) mover().setVertical(0); };
+    b.addEventListener('pointerdown', start);
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => b.addEventListener(t, stop));
+    b.addEventListener('contextmenu', (e) => e.preventDefault());
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyF' && joined && !e.repeat && !/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) setFly(!flying);
+  });
+  ['#leftHand', '#rightHand'].forEach((s) => ['bbuttondown', 'ybuttondown'].forEach((ev) => $(s).addEventListener(ev, () => setFly(!flying))));
+
+  // Flying on a phone or computer: tap or click empty sky to fly toward it.
+  const skyRay = new THREE.Raycaster();
+  function onSkyTap(e) {
+    if (!flying || !joined || dragged || scene.is('vr-mode')) return;
+    const cur = scene.components.cursor;
+    if (cur && cur.intersectedEl) return; // a surface, note or button handles its own tap
+    const rect = scene.canvas.getBoundingClientRect();
+    skyRay.setFromCamera({ x: ((e.clientX - rect.left) / rect.width) * 2 - 1, y: -((e.clientY - rect.top) / rect.height) * 2 + 1 }, scene.camera);
+    mover().flyToward(skyRay.ray.direction, 4);
+  }
+  if (scene.canvas) scene.canvas.addEventListener('click', onSkyTap);
+  else scene.addEventListener('loaded', () => scene.canvas.addEventListener('click', onSkyTap), { once: true });
+
   // Cardboard: the ring in the middle of your view is the pointer. Pressing the Cardboard
   // button (which taps the screen) selects whatever it points at: the floor to walk there,
   // a surface to leave a note, a note, or a button.
@@ -1548,7 +1593,11 @@
     if (!rc) return;
     rc.checkIntersections && rc.checkIntersections();
     const target = rc.intersectedEls[0];
-    if (!target) return;
+    if (!target) {
+      // aiming at empty sky while flying: fly that way
+      if (flying) mover().flyToward(scene.camera.getWorldDirection(new THREE.Vector3()), 4);
+      return;
+    }
     target.emit('click', { intersection: rc.getIntersection(target), cursorEl: gaze });
   }
   function onXrSelect() { gazeSelect(); }

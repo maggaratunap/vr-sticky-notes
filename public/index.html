@@ -125,6 +125,7 @@
         <li><b>Phone:</b> drag or turn your phone to look, tap the floor to walk, tap a surface to leave a note.</li>
         <li><b>Quest / headset:</b> press "VR", point and pull the trigger. Left stick walks, right stick turns, A or X toggles your mic.</li>
         <li><b>Cardboard:</b> press "VR", aim the ring with your head, and press the Cardboard button to walk to the floor spot, open a note, or press a button.</li>
+        <li><b>Fly:</b> once inside, press <b>Fly</b> to float freely through the room and over models.</li>
       </ul>
     </details>
   </div>
@@ -144,6 +145,11 @@
     <button id="micBtn" class="round" aria-label="Microphone"><span class="mic-icon"></span><span class="meter" id="micMeter"></span></button>
     <button id="addBtn" class="round add" aria-label="Add a sticky note">+</button>
     <button id="uploadBtn" class="round" aria-label="Upload a model or PDF"><span class="upload-icon"></span></button>
+    <button id="flyBtn" class="round fly" aria-label="Fly mode" aria-pressed="false">Fly</button>
+  </div>
+  <div id="flyPad" class="flypad" hidden>
+    <button id="flyUp" class="round" aria-label="Fly up">&#9650;</button>
+    <button id="flyDown" class="round" aria-label="Fly down">&#9660;</button>
   </div>
   <div id="crosshair"></div>
 </div>
