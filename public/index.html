@@ -75,7 +75,7 @@
       <!-- Cardboard pointer: aim with your head, press the Cardboard button (screen tap) to select -->
       <a-entity id="gaze" position="0 0 -1" visible="false"
         cursor="fuse: false"
-        raycaster="objects: .clickable; far: 80; enabled: false"
+        raycaster="objects: .clickable; far: 80; enabled: false; origin: 0 0 1; direction: 0 0 -1"
         geometry="primitive: ring; radiusInner: 0.012; radiusOuter: 0.019"
         material="color: #ffffff; shader: flat; opacity: 0.9; depthTest: false"
         animation__hover="property: scale; startEvents: mouseenter; to: 1.7 1.7 1.7; dur: 120"

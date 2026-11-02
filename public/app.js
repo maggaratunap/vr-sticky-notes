@@ -696,10 +696,10 @@
     // page controls (work with mouse, touch, laser and gaze)
     const ctl = el('a-entity', { class: 'pdf-controls', position: `0 ${PDF_BASE - 0.09} 0.02` }, rec.inner);
     rec.ctl = ctl;
-    vrButton(ctl, '< Prev', -0.5, 0, 0.36, 0.11, () => turnPage(it.id, -1), { wrap: 9 });
+    vrButton(ctl, '< Prev', -0.5, 0, 0.36, 0.11, () => turnPage(it.id, -1), { charSize: 0.045 });
     rec.pageLabel = el('a-entity', { position: '0 0 0.004' }, ctl);
     rec.pageLabel.setAttribute('text', { value: 'Loading...', align: 'center', color: '#1b1f27', width: 0.9, wrapCount: 14 });
-    vrButton(ctl, 'Next >', 0.5, 0, 0.36, 0.11, () => turnPage(it.id, 1), { wrap: 9 });
+    vrButton(ctl, 'Next >', 0.5, 0, 0.36, 0.11, () => turnPage(it.id, 1), { charSize: 0.045 });
     loadPdf(rec);
   }
 
@@ -1420,17 +1420,28 @@
     entity.object3D.lookAt(pos.x, p.y, pos.z);
   }
 
+  // A flat 3D button. Its label is sized to fit inside the button: charSize is the width of
+  // one character in metres, and long labels shrink so they never spill past the edges.
   function vrButton(parent, label, x, y, w, h, onClick, opts) {
     opts = opts || {};
     const base = opts.color || '#3a4252';
     const b = el('a-entity', { class: 'clickable', position: `${x} ${y} 0.004` }, parent);
     b.setAttribute('geometry', { primitive: 'plane', width: w, height: h });
     b.setAttribute('material', { color: base, shader: 'flat' });
-    b.setAttribute('text', { value: label, align: 'center', color: opts.textColor || '#ffffff', width: opts.textWidth || Math.max(w * 2.2, 0.32), wrapCount: opts.wrap || 12, zOffset: 0.002 });
+    const tw = w * 0.88;
+    const charSize = Math.min(opts.charSize || 0.028, h * 0.55);
+    const wrap = Math.max(String(label).length + 1, Math.round(tw / charSize), 2);
+    b.setAttribute('text', { value: label, align: 'center', anchor: 'center', baseline: 'center', color: opts.textColor || '#ffffff', width: tw, wrapCount: wrap, zOffset: 0.002 });
     b.addEventListener('mouseenter', () => b.setAttribute('material', 'color', opts.hover || '#5c6880'));
     b.addEventListener('mouseleave', () => b.setAttribute('material', 'color', base));
     b.addEventListener('click', (e) => { e.stopPropagation(); if (!fromDrag(e)) onClick(b); });
     return b;
+  }
+
+  // New 3D buttons must be added to the pointers' target lists before they can be hit.
+  function refreshPointersSoon() {
+    setTimeout(refreshRaycasters, 30);
+    setTimeout(refreshRaycasters, 250);
   }
 
   function openVrKeyboard(opts) {
@@ -1440,55 +1451,59 @@
     let color = current ? current.color : lastNoteColor;
     let shift = !text;
 
-    const root = el('a-entity', {}, $('#vrLayer'));
+    const root = el('a-entity', { class: 'vr-keyboard' }, $('#vrLayer'));
     vrKb = root;
-    inFrontOfViewer(root, 0.75, -0.22);
-    const bg = el('a-entity', { position: '0 0.02 0' }, root);
-    bg.setAttribute('geometry', { primitive: 'plane', width: 0.88, height: 0.8 });
-    bg.setAttribute('material', { color: '#1b1f27', shader: 'flat', opacity: 0.94, transparent: true });
-    const title = el('a-entity', { position: '-0.42 0.38 0.003' }, root);
-    title.setAttribute('text', { value: current ? 'Edit sticky note' : 'New sticky note', color: '#ffffff', width: 0.5, anchor: 'left' });
-    const preview = el('a-entity', { position: '0 0.29 0.003' }, root);
-    preview.setAttribute('geometry', { primitive: 'plane', width: 0.82, height: 0.11 });
+    inFrontOfViewer(root, 1.0, -0.2);
+    const bg = el('a-entity', { position: '0 0.065 -0.002' }, root);
+    bg.setAttribute('geometry', { primitive: 'plane', width: 1.04, height: 0.93 });
+    bg.setAttribute('material', { color: '#1b1f27', shader: 'flat', opacity: 0.95, transparent: true });
+    const title = el('a-entity', { position: '-0.49 0.475 0.003' }, root);
+    title.setAttribute('text', { value: current ? 'Edit sticky note' : 'New sticky note', color: '#ffffff', width: 0.6, wrapCount: 24, anchor: 'left' });
+    const preview = el('a-entity', { position: '0 0.375 0.003' }, root);
+    preview.setAttribute('geometry', { primitive: 'plane', width: 0.98, height: 0.13 });
     preview.setAttribute('material', { color, shader: 'flat' });
-    preview.setAttribute('text', { value: '', color: '#1d1d1f', width: 0.78, wrapCount: 46, align: 'left', zOffset: 0.002 });
+    preview.setAttribute('text', { value: '', color: '#1d1d1f', width: 0.93, wrapCount: 40, align: 'left', anchor: 'center', baseline: 'center', zOffset: 0.002 });
     const showText = () => {
-      preview.setAttribute('text', { value: wrapLines(font3d(text) + '_', 44).slice(-3).join('\n') });
+      preview.setAttribute('text', { value: wrapLines(font3d(text) + '_', 38).slice(-3).join('\n') });
       preview.setAttribute('material', 'color', color);
       if (ghost) ghost.setAttribute('material', 'color', color);
     };
     const add = (s) => { if (text.length + s.length <= config.maxText) text += s; showText(); };
 
-    ['Looks good', 'Question:', 'Clash here', 'Needs change'].forEach((ph, i) => vrButton(root, ph, -0.3075 + i * 0.205, 0.205, 0.195, 0.05, () => {
-      add((text ? ' ' : '') + ph); shift = false; refreshKeys();
-    }, { color: '#2c3a33', hover: '#3f5a4a', wrap: 14, textWidth: 0.42 }));
+    // quick phrases (fastest way to comment, especially in Cardboard)
+    ['Looks good', 'Question:', 'Clash here', 'Needs change'].forEach((ph, i) => vrButton(root, ph, -0.3675 + i * 0.245, 0.255, 0.235, 0.07, () => {
+      add((text && !/\s$/.test(text) ? ' ' : '') + ph); shift = false; refreshKeys();
+    }, { color: '#2c3a33', hover: '#3f5a4a', charSize: 0.02 }));
 
+    // letter keys: 8.5 cm squares
+    const KEY = 0.085, PITCH = 0.095;
     const rows = ['1234567890', 'qwertyuiop', "asdfghjkl'", 'zxcvbnm,.?'];
     const letterKeys = [];
     rows.forEach((row, r) => {
       [...row].forEach((ch, c) => {
-        const k = vrButton(root, ch, -0.351 + c * 0.078, 0.125 - r * 0.078, 0.07, 0.07, () => {
+        const k = vrButton(root, ch, -0.4275 + c * PITCH, 0.15 - r * PITCH, KEY, KEY, () => {
           add(shift ? ch.toUpperCase() : ch);
           if (shift) { shift = false; refreshKeys(); }
-        }, { wrap: 4, textWidth: 0.28 });
+        }, { charSize: 0.04 });
         if (/[a-z]/.test(ch)) letterKeys.push({ k, ch });
       });
     });
     const refreshKeys = () => letterKeys.forEach(({ k, ch }) => k.setAttribute('text', { value: shift ? ch.toUpperCase() : ch }));
 
-    const by = 0.125 - 4 * 0.078;
-    vrButton(root, 'Shift', -0.3125, by, 0.148, 0.07, () => { shift = !shift; refreshKeys(); }, { wrap: 8 });
-    vrButton(root, 'space', -0.029, by, 0.4, 0.07, () => add(' '), { wrap: 18 });
-    vrButton(root, '!', 0.2205, by, 0.07, 0.07, () => add('!'), { wrap: 4, textWidth: 0.28 });
-    vrButton(root, 'Del', 0.3125, by, 0.098, 0.07, () => { text = text.slice(0, -1); showText(); }, { wrap: 6, color: '#5a3a3a', hover: '#7a4a4a' });
+    const by = 0.15 - 4 * PITCH;
+    vrButton(root, 'Shift', -0.38, by, 0.18, KEY, () => { shift = !shift; refreshKeys(); }, { charSize: 0.03 });
+    vrButton(root, 'space', -0.055, by, 0.45, KEY, () => add(' '), { charSize: 0.03 });
+    vrButton(root, '!', 0.2225, by, KEY, KEY, () => add('!'), { charSize: 0.04 });
+    vrButton(root, 'Delete', 0.3725, by, 0.195, KEY, () => { text = text.slice(0, -1); showText(); }, { color: '#5a3a3a', hover: '#7a4a4a', charSize: 0.028 });
 
-    const cy = by - 0.085;
-    config.noteColors.forEach((c, i) => vrButton(root, '', -0.385 + i * 0.058, cy, 0.05, 0.05, () => { color = c; showText(); }, { color: c, hover: c }));
-    vrButton(root, 'Cancel', 0.075, cy, 0.14, 0.06, () => closeVrKeyboard(), { wrap: 8 });
-    vrButton(root, 'Post', 0.27, cy, 0.2, 0.06, () => { closeVrKeyboard(true); submitNote(opts, text, color); }, { color: '#f2b705', hover: '#ffd24a', textColor: '#1b1f27', wrap: 8 });
+    const cy = by - 0.105;
+    config.noteColors.forEach((c, i) => vrButton(root, '', -0.44 + i * 0.07, cy, 0.06, 0.06, () => { color = c; showText(); }, { color: c, hover: c }));
+    vrButton(root, 'Cancel', 0.08, cy, 0.17, 0.075, () => closeVrKeyboard(), { charSize: 0.028 });
+    vrButton(root, 'Post', 0.33, cy, 0.24, 0.075, () => { closeVrKeyboard(true); submitNote(opts, text, color); }, { color: '#f2b705', hover: '#ffd24a', textColor: '#1b1f27', charSize: 0.034 });
 
     refreshKeys();
     showText();
+    refreshPointersSoon();
   }
   function closeVrKeyboard(keepGhost) {
     if (vrKb && vrKb.parentNode) vrKb.parentNode.removeChild(vrKb);
@@ -1499,27 +1514,33 @@
   function openVrPanel(n) {
     closeVrPanel(); closeVrKeyboard();
     openNoteId = n.id;
-    const root = el('a-entity', {}, $('#vrLayer'));
+    const root = el('a-entity', { class: 'vr-panel' }, $('#vrLayer'));
     vrPanel = root;
-    inFrontOfViewer(root, 0.8, -0.1);
-    const lines = wrapLines(font3d(n.text), 34).slice(0, 12);
-    const h = 0.17 + lines.length * 0.036;
-    const bg = el('a-entity', { position: '0 -0.02 0' }, root);
-    bg.setAttribute('geometry', { primitive: 'plane', width: 0.62, height: h + 0.1 });
-    bg.setAttribute('material', { color: '#1b1f27', shader: 'flat', opacity: 0.94, transparent: true });
-    const paper = el('a-entity', { position: `0 ${h / 2 - 0.06} 0.003` }, root);
-    paper.setAttribute('geometry', { primitive: 'plane', width: 0.56, height: lines.length * 0.036 + 0.05 });
+    inFrontOfViewer(root, 1.0, -0.1);
+    const W = 0.8;
+    const LH = 0.042;
+    const lines = wrapLines(font3d(n.text), 30).slice(0, 10);
+    const paperH = lines.length * LH + 0.06;
+    const total = paperH + 0.22;
+    const bg = el('a-entity', { position: '0 0 -0.002' }, root);
+    bg.setAttribute('geometry', { primitive: 'plane', width: W + 0.06, height: total });
+    bg.setAttribute('material', { color: '#1b1f27', shader: 'flat', opacity: 0.95, transparent: true });
+    const top = total / 2;
+    const paper = el('a-entity', { position: `0 ${top - 0.03 - paperH / 2} 0.003` }, root);
+    paper.setAttribute('geometry', { primitive: 'plane', width: W, height: paperH });
     paper.setAttribute('material', { color: n.color, shader: 'flat' });
-    paper.setAttribute('text', { value: lines.join('\n'), color: '#1d1d1f', width: 0.52, wrapCount: 36, align: 'left', zOffset: 0.002 });
-    const meta = el('a-entity', { position: `-0.28 ${-h / 2 + 0.07} 0.003` }, root);
-    meta.setAttribute('text', { value: font3d(`${n.author} - ${ago(n.ts)}`), color: '#c9ced8', width: 0.45, anchor: 'left' });
-    const y = -h / 2 + 0.005;
+    paper.setAttribute('text', { value: lines.join('\n'), color: '#1d1d1f', width: W - 0.06, wrapCount: 32, align: 'left', anchor: 'center', baseline: 'center', zOffset: 0.002 });
+    const meta = el('a-entity', { position: `${-W / 2} ${top - 0.03 - paperH - 0.04} 0.003` }, root);
+    meta.setAttribute('text', { value: font3d(`${n.author} - ${ago(n.ts)}`), color: '#c9ced8', width: 0.6, wrapCount: 34, anchor: 'left' });
+    const y = -top + 0.06;
     const btns = [[`${n.voted ? 'Voted' : '+1'}${n.votes ? ` (${n.votes})` : ''}`, () => send({ type: 'note-vote', id: n.id })]];
     if (n.mine) btns.push(['Edit', () => { closeVrPanel(); compose({ mode: 'edit', id: n.id }); }]);
     if (n.mine || me.isAdmin) btns.push(['Delete', () => { closeVrPanel(); send({ type: 'note-delete', id: n.id }); }]);
     btns.push(['Close', () => closeVrPanel()]);
-    const w = 0.56 / btns.length - 0.01;
-    btns.forEach(([label, fn], i) => vrButton(root, label, -0.28 + w / 2 + i * (w + 0.0133), y, w, 0.06, fn, { wrap: 10 }));
+    const gap = 0.015;
+    const w = (W - gap * (btns.length - 1)) / btns.length;
+    btns.forEach(([label, fn], i) => vrButton(root, label, -W / 2 + w / 2 + i * (w + gap), y, w, 0.08, fn, { charSize: 0.03 }));
+    refreshPointersSoon();
   }
   function closeVrPanel() {
     if (vrPanel && vrPanel.parentNode) vrPanel.parentNode.removeChild(vrPanel);
