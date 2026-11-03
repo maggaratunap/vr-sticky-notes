@@ -1,5 +1,5 @@
 import * as T from 'three';
-import { DwellSelector, readStick, tapAction, GazeMenuAnchor } from './vr-controls';
+import { DwellSelector, readStick, tapAction, GazeMenuAnchor, movementDelta } from './vr-controls';
 import { cardboardLayout, loadCardboard, normalizeCardboard, type CardboardSettings } from './cardboard';
 import { SVGRenderer, SVGObject } from 'three/addons/renderers/SVGRenderer.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -54,6 +54,9 @@ export class Viewer {
     isXR = false;
     placing = false;
     walking = false;
+    flying = false;
+    liftInput = 0;
+    onFlyChange: ((flying: boolean) => void) | null = null;
     stereoscopic = false;
     ray = new T.Raycaster();
     pointer = new T.Vector2();
@@ -179,8 +182,9 @@ export class Viewer {
         window.addEventListener('keydown', this.keyDown);
         window.addEventListener('keyup', this.keyUp);
         window.addEventListener('blur', this.blur);
+        document.addEventListener('visibilitychange', this.visibilityChanged);
         this.renderer.domElement.addEventListener('webglcontextlost', this.contextLost);
-        this.renderer.xr.addEventListener('sessionstart', () => { this.menuAnchor.reset(); this.isXR = true; this.vrMenu.visible = true; this.controls.enabled = false; this.rig.position.set(0, 0, 11); this.camera.position.set(0, 1.6, 0); this.camera.rotation.set(0, 0, 0); this.placing = false; this.keyboard.visible = false; });
+        this.renderer.xr.addEventListener('sessionstart', () => { this.setFly(false); this.blur(); this.menuAnchor.reset(); this.isXR = true; this.vrMenu.visible = true; this.controls.enabled = false; this.rig.position.set(0, 0, 11); this.camera.position.set(0, 1.6, 0); this.camera.rotation.set(0, 0, 0); this.placing = false; this.keyboard.visible = false; });
         document.addEventListener('fullscreenchange', this.fullscreenChanged);
         this.renderer.xr.addEventListener('sessionend', () => { this.isXR = false; this.vrMenu.visible = false; this.reticle.visible = false; this.placing = false; this.rig.position.set(0, 0, 0); this.keyboard.visible = false; this.setWalk(false); this.fit(); });
         this.demo();
@@ -327,6 +331,7 @@ export class Viewer {
     fit() {
         if (this.isXR || this.stereoscopic)
             return;
+        this.setFly(false);
         if (this.hallMode) {
             this.resetNavigation();
             this.setWalk(true);
@@ -361,6 +366,7 @@ export class Viewer {
         });
     }
     setWalk(v: boolean) {
+        this.setFly(false);
         const was = this.walking;
         this.walking = v;
         this.controls.enabled = !v;
@@ -370,7 +376,25 @@ export class Viewer {
             this.controls.update();
         }
     }
-    focus(p: number[]) { const point = new T.Vector3(...p); this.controls.target.copy(point); this.camera.position.copy(point).add(new T.Vector3(4, 3, 5)); this.controls.update(); }
+    setFly(v: boolean) {
+        if (this.flying === v) return;
+        this.flying = v;
+        this.blur();
+        if (v) {
+            // Start from the current view rather than jumping to the walking spawn.
+            this.walking = true;
+            this.controls.enabled = false;
+        }
+        this.onFlyChange?.(v);
+        this.makeVRMenu();
+    }
+    lift(direction: number) { this.liftInput = this.flying && Number.isFinite(direction) ? Math.max(-1, Math.min(1, direction)) : 0; }
+    flyStep(direction: number) { if (this.flying && Number.isFinite(direction)) this.translate(new T.Vector3(0, Math.sign(direction) * .75, 0)); }
+    translate(delta: T.Vector3) {
+        if (this.isXR) this.rig.position.add(delta);
+        else { this.camera.position.add(delta); this.controls.target.add(delta); }
+    }
+    focus(p: number[]) { this.setWalk(false); const point = new T.Vector3(...p); this.controls.target.copy(point); this.camera.position.copy(point).add(new T.Vector3(4, 3, 5)); this.controls.update(); }
     pose() { const v = new T.Vector3(); (this.isXR ? this.renderer.xr.getCamera() : this.camera).getWorldPosition(v); return v.toArray(); }
     lookPointer: {
         id: number;
@@ -414,14 +438,17 @@ export class Viewer {
         this.activateHit(this.hitFromRay(), this.walking);
     };
     keyDown = (e: KeyboardEvent) => {
-        if ((e.target as HTMLElement).matches('input,textarea'))
+        if ((e.target as HTMLElement).matches('input,textarea,select,[contenteditable="true"]'))
             return;
+        if ((this.walking || this.isXR) && ['w', 'a', 's', 'd', ...(this.flying ? ['q', 'e'] : [])].includes(e.key.toLowerCase())) e.preventDefault();
         this.keys.add(e.key.toLowerCase());
         if (e.key.toLowerCase() === 'n')
             document.querySelector<HTMLButtonElement>('.add-note')?.click();
     };
     keyUp = (e: KeyboardEvent) => { this.keys.delete(e.key.toLowerCase()); };
-    blur = () => this.keys.clear();
+    stopMovement() { this.keys.clear(); this.input.set(0, 0, 0); this.liftInput = 0; this.lookPointer = null; }
+    blur = () => this.stopMovement();
+    visibilityChanged = () => { if (document.hidden) this.blur(); };
     contextLost = (e: Event) => { e.preventDefault(); this.notify('Graphics context lost. Reload to restore the model viewer.'); };
     moveInput(x: number, z: number) { this.input.set(x, 0, z); }
     async enterVR() {
@@ -540,14 +567,9 @@ export class Viewer {
         const cam = this.isXR ? this.renderer.xr.getCamera() : this.camera;
         const dir = new T.Vector3();
         cam.getWorldDirection(dir);
-        dir.y = 0;
+        if (!this.flying) dir.y = 0;
         dir.normalize().multiplyScalar(1);
-        if (this.isXR)
-            this.rig.position.add(dir);
-        else {
-            this.camera.position.add(dir);
-            this.controls.target.add(dir);
-        }
+        this.translate(dir);
     }
     updateVRMenu() {
         this.vrMenu.visible = (this.isXR || this.stereoscopic) && !this.keyboard.visible;
@@ -563,6 +585,8 @@ export class Viewer {
         this.vrMenu.updateMatrixWorld(true);
     }
     resetNavigation() {
+        this.setFly(false);
+        this.blur();
         this.menuAnchor.reset();
         this.input.set(0, 0, 0);
         this.placing = false;
@@ -616,8 +640,10 @@ export class Viewer {
         }
     }
     activateHit(hit: T.Intersection | undefined, allowMove = true) {
-        if (!hit)
+        if (!hit) {
+            if (this.flying && allowMove && !this.placing && !this.removeMode && !this.keyboard.visible) this.step();
             return;
+        }
         const data = hit.object.userData;
         const ui = !!data.action;
         const action = tapAction({ interactive: ui, noteMode: this.placing, removeMode: this.removeMode, walkable: allowMove && this.walkable(hit) });
@@ -639,6 +665,8 @@ export class Viewer {
             this.makeVRMenu();
             this.onPin(hit.point.toArray());
         }
+        else if (this.flying && allowMove && !this.placing && !this.removeMode && !this.keyboard.visible)
+            this.step();
         else if (action === 'move')
             this.teleport(hit.point);
     }
@@ -941,6 +969,8 @@ export class Viewer {
             actions[1] = ['Previous', () => this.onPrevious?.()];
             actions[3] = ['Next', () => this.onNext?.()];
         }
+        actions.push([this.flying ? 'Fly ON' : 'Fly', () => this.setFly(!this.flying)]);
+        if (this.flying) actions.push(['Up', () => this.flyStep(1)], ['Down', () => this.flyStep(-1)]);
         actions.forEach(([label, action], i) => { const b = this.plane(this.canvasText(label, label.includes('ON') ? '#fff0ad' : '#edf3f8', 512, 160, 58), .34, .12); b.position.set((i % 3 - 1) * .38, -Math.floor(i / 3) * .16, 0); b.userData.action = action; b.userData.menu = true; this.vrMenu.add(b); this.buttons.push(b); });
     }
     snapTurn(angle: number) { const head = new T.Vector3(); this.renderer.xr.getCamera().getWorldPosition(head); const offset = head.sub(this.rig.position); const rotated = offset.clone().applyAxisAngle(new T.Vector3(0, 1, 0), angle); this.rig.rotateY(angle); this.rig.position.add(offset.sub(rotated)); }
@@ -952,16 +982,15 @@ export class Viewer {
         else if (i === 0 && hit && this.walkable(hit))
             this.teleport(hit.point);
     }
-    animate = () => {
-        if (this.disposed)
-            return;
-        const dt = Math.min(this.clock.getDelta(), .05);
-        if (this.isXR || this.walking) {
+    updateMovement(dt: number) {
+        if ((this.isXR || this.walking) && !this.keyboard.visible) {
             let x = this.input.x + (this.keys.has('d') ? 1 : 0) - (this.keys.has('a') ? 1 : 0), z = this.input.z + (this.keys.has('s') ? 1 : 0) - (this.keys.has('w') ? 1 : 0);
+            let lift = this.liftInput + (this.keys.has('e') ? 1 : 0) - (this.keys.has('q') ? 1 : 0);
             if (this.isXR)
                 for (const source of this.renderer.xr.getSession()?.inputSources || []) {
                     const stick = readStick(source.gamepad?.axes);
                     if (source.handedness === 'right') {
+                        if (this.flying) lift -= stick.z;
                         if (Math.abs(stick.x) < .25)
                             this.snapArmed = true;
                         else if (Math.abs(stick.x) > .65 && this.snapArmed) {
@@ -976,17 +1005,14 @@ export class Viewer {
                 }
             const dir = new T.Vector3();
             (this.isXR ? this.renderer.xr.getCamera() : this.camera).getWorldDirection(dir);
-            dir.y = 0;
-            dir.normalize();
-            const side = new T.Vector3().crossVectors(dir, new T.Vector3(0, 1, 0));
-            const delta = dir.multiplyScalar(-z * dt * 3).addScaledVector(side, x * dt * 3);
-            if (this.isXR)
-                this.rig.position.add(delta);
-            else {
-                this.camera.position.add(delta);
-                this.controls.target.add(delta);
-            }
+            const delta = movementDelta(dir.toArray(), x, z, lift, this.flying, dt);
+            this.translate(new T.Vector3(delta.x, delta.y, delta.z));
         }
+    }
+    animate = () => {
+        if (this.disposed)
+            return;
+        const dt = Math.min(this.clock.getDelta(), .05);
         if (this.stereoscopic && this.orientation) {
             const e = this.orientation;
             const orient = (screen.orientation?.angle || 0) * Math.PI / 180;
@@ -1001,6 +1027,7 @@ export class Viewer {
         }
         else if (!this.isXR && !this.walking)
             this.controls.update();
+        this.updateMovement(dt);
         this.updateVRMenu();
         this.layoutFallbackLabels();
         if (this.stereoscopic) {
@@ -1016,6 +1043,6 @@ export class Viewer {
         if (this.stereoscopic && !document.fullscreenElement)
             document.querySelector<HTMLButtonElement>('.exit-stereo')?.click();
     };
-    dispose() { this.cardboardMask?.geometry.dispose(); this.cardboardMask?.material.dispose(); this.renderer.domElement.removeEventListener('contextmenu',this.contextMenu); document.removeEventListener('fullscreenchange', this.fullscreenChanged); this.disposed = true; this.renderer.setAnimationLoop(null); this.observer.disconnect(); window.removeEventListener('keydown', this.keyDown); window.removeEventListener('keyup', this.keyUp); window.removeEventListener('blur', this.blur); window.removeEventListener('deviceorientation', this.onOrientation); this.clear(this.model); this.clear(this.pins); this.clear(this.avatars); this.clear(this.pdfGroup); this.clear(this.keyboard); this.clear(this.portals); this.clear(this.info); this.controls.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); }
+    dispose() { document.removeEventListener('visibilitychange', this.visibilityChanged); this.blur(); this.cardboardMask?.geometry.dispose(); this.cardboardMask?.material.dispose(); this.renderer.domElement.removeEventListener('contextmenu',this.contextMenu); document.removeEventListener('fullscreenchange', this.fullscreenChanged); this.disposed = true; this.renderer.setAnimationLoop(null); this.observer.disconnect(); window.removeEventListener('keydown', this.keyDown); window.removeEventListener('keyup', this.keyUp); window.removeEventListener('blur', this.blur); window.removeEventListener('deviceorientation', this.onOrientation); this.clear(this.model); this.clear(this.pins); this.clear(this.avatars); this.clear(this.pdfGroup); this.clear(this.keyboard); this.clear(this.portals); this.clear(this.info); this.controls.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); }
 }
 

@@ -50,3 +50,15 @@ body:has(.exit-stereo) .storage-preview{display:none}
 .stereo-alignment:before,.stereo-alignment:after{content:'';position:absolute;left:calc(50% - 1px);width:2px;height:14px;background:#d8dfe5}
 .stereo-alignment:before{top:0}.stereo-alignment:after{bottom:0}
 @media(max-width:600px){.cardboard-fit{padding:14px}.cardboard-fit-controls{grid-template-columns:1fr;gap:12px}.cardboard-fit-preview{height:auto}}
+
+/* Fly controls share the existing walking joystick. */
+.fly-button{display:flex;align-items:center;gap:7px;padding:10px 12px;border:1px solid #d1dbe5;border-radius:6px;background:#f6f8faed;font-size:11px;white-space:nowrap;margin-left:auto;min-height:40px}
+.fly-button.active{background:#2d596d;color:white;border-color:#2d596d}
+.fly-button+.vr-button{margin-left:0}
+.flight-controls{position:absolute;right:24px;bottom:144px;z-index:3;display:flex;flex-direction:column;align-items:stretch;gap:7px}
+.flight-controls>span{font-size:8px;letter-spacing:1.2px;text-align:center;color:#6c8195}
+.flight-controls button{display:flex;align-items:center;gap:9px;justify-content:center;min-width:68px;min-height:44px;border:1px solid #d1dce6;background:#fffffff0;border-radius:8px;font-size:12px;color:#34556c;touch-action:none;user-select:none;-webkit-user-select:none}
+.flight-controls button:active{background:#dcebf1}
+.flight-controls b{font-size:20px;font-weight:500}
+.workspace:has(.exit-stereo) .flight-controls{display:none}
+@media(max-width:600px){.fly-button{padding:9px 11px}.flight-controls{right:16px;bottom:140px}.bottom-stage .navigation-hint{flex-shrink:1;min-width:0}}

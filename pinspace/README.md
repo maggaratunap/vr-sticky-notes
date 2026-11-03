@@ -42,3 +42,7 @@ Cardboard: gaze at a destination/control and tap. The menu retains a fixed headi
 
 Vendor Draco and PDF worker files are copied from locked npm dependencies during the build. User data, credentials, dependencies and built files are not committed.
 
+
+## Flying
+
+Choose Fly beside VR setup to start from the current camera position. Fly again returns to level movement without dropping or teleporting the camera. WASD or the touch joystick moves relative to the view, including pitch; E goes up and Q goes down. Hold the on-screen Up/Down buttons to change altitude, or activate them with the keyboard for a 0.75 m step. In Cardboard/Quest, select Fly in the fixed world menu. In Cardboard, gaze ahead and tap to fly 1 m, including into empty space; interactive controls and note placement retain priority. Step also flies 1 m where you look, and Up/Down change altitude by 0.75 m. Quest left stick moves; right stick up/down changes altitude while flying and left/right retains snap turns. Room changes, fit/orbit and VR exit reset flight. Inputs stop on release, cancellation, blur and tab hiding. Flight has no collision detection.
