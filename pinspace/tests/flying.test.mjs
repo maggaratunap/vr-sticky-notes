@@ -57,6 +57,8 @@ test('desktop, touch, Cardboard and Quest inputs move the actual camera/rig and 
         const typingNote = view.camera.position.clone(); view.activateHit(undefined);
         assert.deepEqual(view.camera.position.toArray(), typingNote.toArray(), 'note placement never becomes a flight tap');
         view.placing = false;
+        view.avatarMenu = true; const editingAvatar = view.camera.position.clone(); view.activateHit(undefined);
+        assert.deepEqual(view.camera.position.toArray(), editingAvatar.toArray(), 'avatar editing blocks flight taps'); view.avatarMenu = false;
         // Quest moves the rig, preserving the headset-local pose and right-stick snap turns.
         view.isXR = true;
         const local = view.camera.position.clone();

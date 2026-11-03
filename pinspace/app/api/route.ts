@@ -1,3 +1,4 @@
+import { normalizeAvatar, validateAvatar } from '../../lib/avatar.ts';
 import { shortcutPosition, shortcutTarget } from '../../lib/room-shortcuts.ts';
 import { validateDeck, readPresentation, validCamera } from '../../lib/presentation.ts';
 import { bucket } from '../../db/storage.mjs';
@@ -167,9 +168,9 @@ async function handle(req: Request) {
             return json({ error: 'Unknown shortcut action.' }, 404);
         }
         if (path.length === 2 && req.method === 'GET') {
-            const [a, n, p, shortcuts] = await Promise.all([db.select().from(assets).where(and(eq(assets.room, room), isNull(assets.removedAt))), db.select().from(notes).where(and(eq(notes.room, room), isNull(notes.removedAt))), db.select({ id: peers.id, name: peers.name, pose: peers.pose, mic: peers.mic }).from(peers).where(and(eq(peers.room, room), gt(peers.seen, now - 20000))), db.select({ id: roomShortcuts.id, target: roomShortcuts.target, title: rooms.title, position: roomShortcuts.position }).from(roomShortcuts).innerJoin(rooms, eq(roomShortcuts.target, rooms.id)).where(and(eq(roomShortcuts.room, room), isNull(roomShortcuts.removedAt), isNull(rooms.removedAt), eq(rooms.publicRoom, 1)))]);
+            const [a, n, p, shortcuts] = await Promise.all([db.select().from(assets).where(and(eq(assets.room, room), isNull(assets.removedAt))), db.select().from(notes).where(and(eq(notes.room, room), isNull(notes.removedAt))), db.select({ id: peers.id, name: peers.name, pose: peers.pose, avatar: peers.avatar, mic: peers.mic }).from(peers).where(and(eq(peers.room, room), gt(peers.seen, now - 20000))), db.select({ id: roomShortcuts.id, target: roomShortcuts.target, title: rooms.title, position: roomShortcuts.position }).from(roomShortcuts).innerJoin(rooms, eq(roomShortcuts.target, rooms.id)).where(and(eq(roomShortcuts.room, room), isNull(roomShortcuts.removedAt), isNull(rooms.removedAt), eq(rooms.publicRoom, 1)))]);
             const { presentationDeck, presentationState, ...publicRoom } = r;
-            return json({ shortcuts: shortcuts.map(x => ({ ...x, canManage: r.owner === owner })), presentation: readPresentation(r, r.owner === owner, a, now), room: { ...publicRoom, canManage: r.owner === owner }, assets: a.map(x => ({ ...x, canManage: r.owner === owner || x.owner === owner })), notes: n.filter(x => !x.asset || a.some(f => f.id === x.asset)).map(x => ({ ...x, canManage: r.owner === owner || x.owner === owner })), peers: p });
+            return json({ shortcuts: shortcuts.map(x => ({ ...x, canManage: r.owner === owner })), presentation: readPresentation(r, r.owner === owner, a, now), room: { ...publicRoom, canManage: r.owner === owner }, assets: a.map(x => ({ ...x, canManage: r.owner === owner || x.owner === owner })), notes: n.filter(x => !x.asset || a.some(f => f.id === x.asset)).map(x => ({ ...x, canManage: r.owner === owner || x.owner === owner })), peers: p.map(peer => ({ ...peer, avatar: normalizeAvatar(peer.avatar) })) });
         }
         if (path[2] === 'presentation' && req.method === 'POST') {
             if (r.owner !== owner)
@@ -288,8 +289,11 @@ async function handle(req: Request) {
                 return json({ error: 'Participant identity mismatch' }, 403);
             if (existing && existing.room !== room)
                 await db.delete(audioPackets).where(and(eq(audioPackets.room, existing.room), eq(audioPackets.sender, b.id)));
+            let avatar: string;
+            try { avatar = JSON.stringify(b.avatar === undefined ? normalizeAvatar(existing?.avatar) : validateAvatar(b.avatar)); }
+            catch { return json({ error: 'Choose a valid avatar.' }, 400); }
             const pose = Array.isArray(b.pose) && b.pose.length === 3 && b.pose.every(Number.isFinite) ? JSON.stringify(b.pose) : '[0,1.6,8]';
-            await db.insert(peers).values({ id: b.id, room, owner: owner!, name: b.name, pose, mic: b.mic === 2 ? 2 : b.mic ? 1 : 0, seen: now }).onConflictDoUpdate({ target: peers.id, set: { room, name: b.name, pose, mic: b.mic === 2 ? 2 : b.mic ? 1 : 0, seen: now } });
+            await db.insert(peers).values({ id: b.id, room, owner: owner!, name: b.name, pose, avatar, mic: b.mic === 2 ? 2 : b.mic ? 1 : 0, seen: now }).onConflictDoUpdate({ target: peers.id, set: { room, name: b.name, pose, avatar, mic: b.mic === 2 ? 2 : b.mic ? 1 : 0, seen: now } });
             try {
                 const presenting = JSON.parse(r.presentationState || 'null');
                 if (presenting?.live && presenting.presenterPeer === b.id && r.owner === owner)
@@ -385,3 +389,4 @@ export const GET = handle;
 export const POST = handle;
 export const PATCH = handle;
 export const DELETE = handle;
+

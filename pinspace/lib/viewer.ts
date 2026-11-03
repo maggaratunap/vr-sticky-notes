@@ -1,6 +1,8 @@
 import * as T from 'three';
 import { DwellSelector, readStick, tapAction, GazeMenuAnchor, movementDelta } from './vr-controls';
 import { cardboardLayout, loadCardboard, normalizeCardboard, type CardboardSettings } from './cardboard';
+import { createAvatarMesh } from './avatar-mesh';
+import { loadAvatar, normalizeAvatar, cycleAvatar, type Avatar } from './avatar';
 import { SVGRenderer, SVGObject } from 'three/addons/renderers/SVGRenderer.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -57,6 +59,9 @@ export class Viewer {
     flying = false;
     liftInput = 0;
     onFlyChange: ((flying: boolean) => void) | null = null;
+    selfAvatar = loadAvatar();
+    avatarMenu = false;
+    onAvatarChange: ((avatar: Avatar) => void) | null = null;
     stereoscopic = false;
     ray = new T.Raycaster();
     pointer = new T.Vector2();
@@ -184,7 +189,7 @@ export class Viewer {
         window.addEventListener('blur', this.blur);
         document.addEventListener('visibilitychange', this.visibilityChanged);
         this.renderer.domElement.addEventListener('webglcontextlost', this.contextLost);
-        this.renderer.xr.addEventListener('sessionstart', () => { this.setFly(false); this.blur(); this.menuAnchor.reset(); this.isXR = true; this.vrMenu.visible = true; this.controls.enabled = false; this.rig.position.set(0, 0, 11); this.camera.position.set(0, 1.6, 0); this.camera.rotation.set(0, 0, 0); this.placing = false; this.keyboard.visible = false; });
+        this.renderer.xr.addEventListener('sessionstart', () => { this.setFly(false); this.blur(); this.menuAnchor.reset(); this.isXR = true; this.avatarMenu = false; this.makeVRMenu(); this.vrMenu.visible = true; this.controls.enabled = false; this.rig.position.set(0, 0, 11); this.camera.position.set(0, 1.6, 0); this.camera.rotation.set(0, 0, 0); this.placing = false; this.keyboard.visible = false; });
         document.addEventListener('fullscreenchange', this.fullscreenChanged);
         this.renderer.xr.addEventListener('sessionend', () => { this.isXR = false; this.vrMenu.visible = false; this.reticle.visible = false; this.placing = false; this.rig.position.set(0, 0, 0); this.keyboard.visible = false; this.setWalk(false); this.fit(); });
         this.demo();
@@ -464,6 +469,7 @@ export class Viewer {
         if (v && !this.stereoscopic) this.regularFov = this.camera.fov;
         this.vrCam.aspect = 1;
         this.stereoscopic = v;
+        this.avatarMenu = false; this.makeVRMenu();
         this.camera.fov = v ? this.cardboardSettings.fov : this.regularFov;
         this.resize();
         this.menuAnchor.reset();
@@ -585,6 +591,7 @@ export class Viewer {
         this.vrMenu.updateMatrixWorld(true);
     }
     resetNavigation() {
+        this.avatarMenu = false;
         this.setFly(false);
         this.blur();
         this.menuAnchor.reset();
@@ -641,11 +648,12 @@ export class Viewer {
     }
     activateHit(hit: T.Intersection | undefined, allowMove = true) {
         if (!hit) {
-            if (this.flying && allowMove && !this.placing && !this.removeMode && !this.keyboard.visible) this.step();
+            if (this.flying && allowMove && !this.placing && !this.removeMode && !this.keyboard.visible && !this.avatarMenu) this.step();
             return;
         }
         const data = hit.object.userData;
         const ui = !!data.action;
+        if (this.avatarMenu && !ui) return;
         const action = tapAction({ interactive: ui, noteMode: this.placing, removeMode: this.removeMode, walkable: allowMove && this.walkable(hit) });
         if (this.removeMode && !data.menu) {
             const item = data.removeTag || (this.modelAssetId && this.isModelObject(hit.object) ? { kind: 'assets', id: this.modelAssetId, label: 'model' } : null);
@@ -875,18 +883,38 @@ export class Viewer {
         if (key === this.lastPeers)
             return;
         this.lastPeers = key;
-        this.clear(this.avatars);
-        for (const p of peers) {
-            const g = new T.Group();
-            const head = new T.Mesh(new T.SphereGeometry(.17, 16, 12), new T.MeshStandardMaterial({ color: p.mic === 1 ? 0x42a995 : 0x5c78a4 }));
-            g.add(head);
-            const label = new T.Sprite(new T.SpriteMaterial({ map: new T.CanvasTexture(this.canvasText(p.name, '#ffffff', 512, 100, 36)), depthTest: false }));
-            label.position.y = .4;
-            label.scale.set(1.5, .3, 1);
-            g.add(label);
-            g.position.fromArray(JSON.parse(p.pose));
-            this.avatars.add(g);
+        const ids = new Set(peers.map(p => p.id));
+        for (const g of [...this.avatars.children]) {
+            if (!ids.has(g.userData.peerId)) { this.clear(g as T.Group); this.avatars.remove(g); }
         }
+        for (const p of peers) {
+            const appearance = normalizeAvatar(p.avatar), styleKey = JSON.stringify([appearance, p.name]);
+            let g = this.avatars.children.find(child => child.userData.peerId === p.id) as T.Group | undefined;
+            if (g && g.userData.styleKey !== styleKey) { this.clear(g); this.avatars.remove(g); g = undefined; }
+            if (!g) {
+                g = new T.Group();
+                g.userData.peerId = p.id; g.userData.styleKey = styleKey;
+                g.add(createAvatarMesh(appearance));
+                const label = new T.Sprite(new T.SpriteMaterial({ map: new T.CanvasTexture(this.canvasText(p.name, '#ffffff', 512, 100, 36)), depthTest: false }));
+                label.position.y = .4; label.scale.set(1.5, .3, 1); g.add(label);
+                const mic = new T.Mesh(new T.SphereGeometry(.035, 8, 6), new T.MeshBasicMaterial());
+                mic.position.set(.24, .19, 0); g.add(mic); g.userData.micIndicator = mic;
+                this.avatars.add(g);
+            }
+            (g.userData.micIndicator.material as T.MeshBasicMaterial).color.set(p.mic === 1 ? '#42a995' : '#9daab4');
+            try { g.position.fromArray(JSON.parse(p.pose)); } catch { g.position.set(0, 1.65, 8); }
+        }
+    }
+    setSelfAvatar(value: Avatar) {
+        const next = normalizeAvatar(value);
+        if (JSON.stringify(next) === JSON.stringify(this.selfAvatar)) return;
+        this.selfAvatar = next;
+        if (this.avatarMenu) this.makeVRMenu();
+    }
+    changeAvatar(field: 'skin' | 'shirt' | 'hair' | 'style' | 'glasses') {
+        const next = field === 'glasses' ? { ...this.selfAvatar, glasses: !this.selfAvatar.glasses } : cycleAvatar(this.selfAvatar, field);
+        this.setSelfAvatar(next);
+        this.onAvatarChange?.(next);
     }
     setPdf(c: HTMLCanvasElement, prev: () => void, next: () => void, page: number, total: number) {
         this.lastPresentationPdf = [c, prev, next, page, total];
@@ -971,6 +999,15 @@ export class Viewer {
         }
         actions.push([this.flying ? 'Fly ON' : 'Fly', () => this.setFly(!this.flying)]);
         if (this.flying) actions.push(['Up', () => this.flyStep(1)], ['Down', () => this.flyStep(-1)]);
+        actions.push(['Avatar', () => { this.stopMovement(); this.avatarMenu = true; this.makeVRMenu(); }]);
+        if (this.avatarMenu) {
+            actions.splice(0, actions.length,
+                ['Skin tone', () => this.changeAvatar('skin')], ['Shirt color', () => this.changeAvatar('shirt')], ['Hair color', () => this.changeAvatar('hair')],
+                ['Hair / hat', () => this.changeAvatar('style')], [this.selfAvatar.glasses ? 'Glasses ON' : 'Glasses', () => this.changeAvatar('glasses')],
+                ['Done', () => { this.avatarMenu = false; this.makeVRMenu(); }]);
+            const preview = createAvatarMesh(this.selfAvatar);
+            preview.scale.setScalar(.6); preview.position.set(0, .55, 0); this.vrMenu.add(preview);
+        }
         actions.forEach(([label, action], i) => { const b = this.plane(this.canvasText(label, label.includes('ON') ? '#fff0ad' : '#edf3f8', 512, 160, 58), .34, .12); b.position.set((i % 3 - 1) * .38, -Math.floor(i / 3) * .16, 0); b.userData.action = action; b.userData.menu = true; this.vrMenu.add(b); this.buttons.push(b); });
     }
     snapTurn(angle: number) { const head = new T.Vector3(); this.renderer.xr.getCamera().getWorldPosition(head); const offset = head.sub(this.rig.position); const rotated = offset.clone().applyAxisAngle(new T.Vector3(0, 1, 0), angle); this.rig.rotateY(angle); this.rig.position.add(offset.sub(rotated)); }
@@ -983,7 +1020,7 @@ export class Viewer {
             this.teleport(hit.point);
     }
     updateMovement(dt: number) {
-        if ((this.isXR || this.walking) && !this.keyboard.visible) {
+        if ((this.isXR || this.walking) && !this.keyboard.visible && !this.avatarMenu) {
             let x = this.input.x + (this.keys.has('d') ? 1 : 0) - (this.keys.has('a') ? 1 : 0), z = this.input.z + (this.keys.has('s') ? 1 : 0) - (this.keys.has('w') ? 1 : 0);
             let lift = this.liftInput + (this.keys.has('e') ? 1 : 0) - (this.keys.has('q') ? 1 : 0);
             if (this.isXR)
