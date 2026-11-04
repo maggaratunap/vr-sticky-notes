@@ -33,12 +33,13 @@ test('portable server preserves presentation, uploads, notes, voice and shortcut
  const link=await req(host,path+'/shortcuts','POST',{target:b,position:[0,1.5,4]});assert.equal(link.status,200);assert.equal((await req(guest,path+'/shortcuts','POST',{target:b,position:[0,1.5,4]})).status,403);assert.equal((await req(guest,path)).data.shortcuts[0].target,b);
  const upload=new FormData();upload.set('file',new File(['%PDF-1.7\nfixture'],'test.pdf',{type:'application/pdf'}));const file=await req(host,path+'/assets','POST',upload);assert.equal(file.status,200);assert.equal((await fetch(origin+'/api/asset/'+file.data.id)).headers.get('Content-Type'),'application/pdf');
  const glbUpload=new FormData();glbUpload.set('file',new File(['glTFfixture'],'model.glb',{type:'model/gltf-binary'}));const model=await req(host,path+'/assets','POST',glbUpload);assert.equal(model.status,200);
- const placement={position:[1,2,3],scale:2};assert.equal((await req(host,path+'/model-transform','PATCH',{asset:null,transform:placement,revision:0})).data.record.revision,1);
+ const placement={position:[1,2,3],scale:2,yaw:Math.PI/3};assert.equal((await req(host,path+'/model-transform','PATCH',{asset:null,transform:placement,revision:0})).data.record.revision,1);
  assert.deepEqual((await req(guest,path)).data.modelTransforms.find(t=>t.asset===null).transform,placement);
- const guestPlacement={position:[4,5,6],scale:.1};assert.equal((await req(guest,path+'/model-transform','PATCH',{asset:null,transform:guestPlacement,revision:1})).status,200);
+ const guestPlacement={position:[4,5,6],scale:.1,yaw:-Math.PI/2};assert.equal((await req(guest,path+'/model-transform','PATCH',{asset:null,transform:guestPlacement,revision:1})).status,200);
  const stale=await req(host,path+'/model-transform','PATCH',{asset:null,transform:placement,revision:1});assert.equal(stale.status,409);assert.equal(stale.data.record.revision,2);assert.deepEqual(stale.data.record.transform,guestPlacement);
  assert.equal((await req(host,path+'/model-transform','PATCH',{asset:null,transform:{position:[0,0,0],scale:.01},revision:2})).status,400);
  assert.equal((await req(host,path+'/model-transform','PATCH',{asset:null,transform:{position:[1e9,0,0],scale:1},revision:2})).status,400);
+ assert.equal((await req(host,path+'/model-transform','PATCH',{asset:null,transform:{position:[0,0,0],scale:1,yaw:'invalid'},revision:2})).status,400);
  assert.equal((await req(null,path+'/model-transform','PATCH',{asset:null,transform:placement,revision:2})).status,401);
  assert.equal((await req(host,path+'/model-transform','PATCH',{asset:file.data.id,transform:placement,revision:0})).status,404);
  assert.equal((await req(host,'rooms/'+b+'/model-transform','PATCH',{asset:model.data.id,transform:placement,revision:0})).status,404);

@@ -126,3 +126,5 @@ button.avatar-customize{border:1px solid #cbd9e2;min-width:34px;min-height:34px}
 .workspace:has(.exit-stereo) .model-controls{display:none}
 @media(max-width:600px){.model-controls{top:70px;right:12px;width:min(260px,calc(100% - 24px))}.model-button{padding:9px;font-size:10px}.bottom-stage{gap:6px}.bottom-stage .navigation-hint{display:none}.model-controls input[type=number]{min-height:42px}}
 .stage:has(>.error-banner) .model-controls{top:124px;max-height:calc(100% - 205px)}
+
+.model-rotate-buttons{display:flex;gap:6px;margin-top:8px}.model-rotate-buttons button{flex:1;min-height:40px;border:1px solid #d5dfe5;border-radius:7px;background:#f4f8fa;color:#304955;font:inherit;font-size:11px;cursor:pointer}

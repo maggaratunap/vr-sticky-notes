@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as T from 'three';
-import { ModelGrab, PinchLatch, gestureModelTransform, defaultModelTransform, validModelTransform } from '../lib/model-transform.ts';
+import { ModelGrab, PinchLatch, gestureModelTransform, defaultModelTransform, validModelTransform, normalizeModelTransform, rotateModelAround } from '../lib/model-transform.ts';
 import { ModelManipulator } from '../lib/model-manipulator.ts';
+import { XRHands } from '../lib/xr-hands.ts';
 import { ModelTransformSync } from '../lib/model-transform-sync.ts';
 import { GazeMenuAnchor } from '../lib/vr-controls.ts';
 
@@ -24,7 +25,7 @@ function pointer(id, x, y, extra = {}) { return { pointerId: id, clientX: x, cli
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-6, `${a} ≈ ${b}`);
 
 test('one/two-point transforms translate in 3D, preserve the grab anchor and clamp the minimum size', () => {
-    assert.deepEqual(gestureModelTransform(defaultModelTransform(), [[0, 0, 0]], [[1, -2, 3]]), { position: [1, -2, 3], scale: 1 });
+    assert.deepEqual(gestureModelTransform(defaultModelTransform(), [[0, 0, 0]], [[1, -2, 3]]), { position: [1, -2, 3], scale: 1, yaw: 0 });
     const tiny = gestureModelTransform({ position: [2, 0, 0], scale: 1 }, [[-1, 0, 0], [1, 0, 0]], [[-.001, 0, 0], [.001, 0, 0]]);
     assert.equal(tiny.scale, .1); close(tiny.position[0], .2);
     const grab = new ModelGrab(); grab.begin('a', [-1, 0, 0], defaultModelTransform()); grab.begin('b', [1, 0, 0], defaultModelTransform());
@@ -85,10 +86,11 @@ test('tracked hand pinches grab and scale, and release immediately on missing jo
     const a = hand('left', -.3), b = hand('right', .3);
     host.renderer.xr.getSession = () => ({ inputSources: sources });
     host.renderer.xr.getFrame = () => ({ getJointPose: joint => positions.has(joint) ? { transform: { position: positions.get(joint) } } : null });
-    m.updateXR(); assert.equal(m.grab.points.size, 2);
-    a.set(-.6); b.set(.6); m.updateXR(); close(m.value().scale, 2);
-    positions.delete(a.index); m.updateXR(); assert.equal(m.grab.points.size, 1);
-    positions.delete(b.index); m.updateXR(); assert.equal(m.active, false);
+    host.activateHit = () => {}; const hands = new XRHands(host);
+    hands.update(); assert.equal(m.grab.points.size, 2);
+    a.set(-.6); b.set(.6); hands.update(); close(m.value().scale, 2);
+    positions.delete(a.index); hands.update(); assert.equal(m.grab.points.size, 1);
+    positions.delete(b.index); hands.update(); assert.equal(m.active, false);
     const latch = new PinchLatch(); assert.equal(latch.update(.02).started, true); assert.equal(latch.update(.03).held, true); assert.equal(latch.update(.05).ended, true);
 });
 
@@ -127,17 +129,39 @@ test('Cardboard model menu buttons are fixed, gaze-reachable and perform the int
         const view = Object.create(Viewer.prototype), calls = [];
         Object.assign(view, { buttons: [], vrMenu: new T.Group(), modelMenu: true, avatarMenu: false, flying: false,
             canvasText: text => text, plane: (text, w, h) => { const b = new T.Mesh(new T.PlaneGeometry(w, h), new T.MeshBasicMaterial()); b.name = text; return b; },
-            manipulator: { available: true, value: () => ({ scale: 1 }), nudge: d => calls.push(d), scaleTo: s => calls.push(s), reset: () => calls.push('reset'), bringHere: () => calls.push('bring'), finish() {} },
+            manipulator: { available: true, value: () => ({ scale: 1 }), nudge: d => calls.push(d), scaleTo: s => calls.push(s), reset: () => calls.push('reset'), bringHere: () => calls.push('bring'), rotateBy: a => calls.push(a), finish() {} },
         });
         view.makeVRMenu(); const anchor = new GazeMenuAnchor(), eye = new T.Vector3(0, 1.65, 0), fixed = anchor.place(eye.toArray(), [0, 0, -1]);
         view.vrMenu.position.fromArray(fixed.position); view.vrMenu.rotation.y = fixed.yaw; view.vrMenu.updateMatrixWorld(true);
-        assert.equal(view.buttons.length, 11);
+        assert.equal(view.buttons.length, 16);
         for (const b of view.buttons) {
             const dir = b.localToWorld(new T.Vector3(.03, .01, 0)).sub(eye).normalize();
             assert.deepEqual(anchor.place(eye.toArray(), dir.toArray()), fixed);
             assert.equal(new T.Raycaster(eye, dir).intersectObjects(view.buttons)[0]?.object?.name, b.name);
         }
-        view.buttons.find(b => b.name === 'Near').userData.action(); view.buttons.find(b => b.name === 'Bigger').userData.action(); view.buttons.find(b => b.name === 'Reset model').userData.action();
-        assert.deepEqual(calls, ['near', 1.15, 'reset']); view.clear(view.vrMenu);
+        view.buttons.find(b => b.name === 'Near').userData.action(); view.buttons.find(b => b.name === 'Bigger').userData.action(); view.buttons.find(b => b.name === 'Reset model').userData.action(); view.buttons.find(b => b.name === 'Rotate left').userData.action();
+        assert.deepEqual(calls, ['near', 1.15, 'reset', Math.PI / 12]); view.clear(view.vrMenu);
     } finally { await vite.close(); }
+});
+
+test('horizontal model rotation keeps its center and notes attached, and accepts pre-rotation saved transforms', () => {
+    const {host,m}=fixture(); host.model.children[0].position.set(3,2,1);host.model.updateMatrixWorld(true);
+    const center=new T.Box3().setFromObject(host.model).getCenter(new T.Vector3());
+    m.rotateTo(Math.PI/2);const after=new T.Box3().setFromObject(host.model).getCenter(new T.Vector3());close(center.distanceTo(after),0);
+    close(host.model.rotation.x,0);close(host.model.rotation.z,0);close(host.pins.rotation.y,Math.PI/2);
+    const local=[.2,.5,.8],world=m.worldPoint(local);const recovered=m.localPoint(world);local.forEach((n,i)=>close(n,recovered[i]));
+    m.scaleTo(.5);close(m.value().yaw,Math.PI/2);m.positionTo([1,2,3]);close(m.value().yaw,Math.PI/2);m.reset();close(m.value().yaw,0);
+    assert.equal(normalizeModelTransform({position:[2,3,4],scale:2}).yaw,0);
+    assert.equal(validModelTransform({position:[0,0,0],scale:1,yaw:NaN}),false);
+    const rotated=rotateModelAround({position:[2,0,0],scale:1,yaw:0},[0,0,0],Math.PI/2);close(rotated.position[2],-2);
+});
+test('Shift-drag and mobile two-finger twist rotate the model horizontally without rotating the camera', () => {
+    const {host,m}=fixture();const eye=host.camera.quaternion.clone();
+    m.pointerDown(pointer(1,200,200,{pointerType:'mouse',shiftKey:true}));m.pointerMove(pointer(1,250,200));close(m.value().yaw,.5);m.pointerUp(pointer(1,250,200));m.reset();
+    m.pointerDown(pointer(1,180,200));m.pointerDown(pointer(2,220,200));m.pointerMove(pointer(2,180,240));close(m.value().yaw,Math.PI/2);close(m.value().scale,1);
+    assert.ok(eye.equals(host.camera.quaternion));const before=m.value().yaw;m.pointerUp(pointer(2,180,240));m.pointerMove(pointer(1,185,200));close(m.value().yaw,before);m.finish();
+});
+test('two grabs rotate about world Y while preserving the grip midpoint and minimum size',()=>{
+    const grab=new ModelGrab();grab.begin('left',[-1,0,0],defaultModelTransform());grab.begin('right',[1,0,0],defaultModelTransform());
+    grab.move('left',[0,0,2],true);const value=grab.move('right',[0,0,-2],true);close(value.scale,2);close(value.yaw,Math.PI/2);close(Math.hypot(...value.position),0);
 });

@@ -74,6 +74,7 @@ export class GazeMenuAnchor {
         number
     ] | null = null;
     reset() { this.heading = null; }
+    turn(angle: number) { if (this.heading) { const [x, z] = this.heading, c = Math.cos(angle), s = Math.sin(angle); this.heading = [c * x + s * z, -s * x + c * z]; } }
     place(eye: readonly number[], forward: readonly number[]) {
         if (!this.heading) {
             const length = Math.hypot(forward[0], forward[2]);

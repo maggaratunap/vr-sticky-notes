@@ -1,3 +1,4 @@
+import { XRHands } from './xr-hands';
 import { ModelManipulator } from './model-manipulator';
 import { defaultModelTransform, type ModelTransform } from './model-transform';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
@@ -16,7 +17,7 @@ export class Viewer {
     lastPresentationPdf: any = null;
     onNext: (() => void) | null = null;
     onPrevious: (() => void) | null = null;
-    cameraFrame() { const camera = this.isXR ? this.renderer.xr.getCamera() : this.camera; const position = new T.Vector3(), direction = new T.Vector3(); camera.getWorldPosition(position); camera.getWorldDirection(direction); const target = this.walking || this.isXR || this.stereoscopic ? position.clone().addScaledVector(direction, 10) : this.controls.target.clone(); return { position: position.toArray().map(n => Math.round(n * 1000) / 1000), target: target.toArray().map(n => Math.round(n * 1000) / 1000) }; }
+    cameraFrame() { const camera = this.camera; const position = new T.Vector3(), direction = new T.Vector3(); camera.getWorldPosition(position); camera.getWorldDirection(direction); const target = this.walking || this.isXR || this.stereoscopic ? position.clone().addScaledVector(direction, 10) : this.controls.target.clone(); return { position: position.toArray().map(n => Math.round(n * 1000) / 1000), target: target.toArray().map(n => Math.round(n * 1000) / 1000) }; }
     applyFrame(frame: {
         position: number[];
         target: number[];
@@ -51,6 +52,7 @@ export class Viewer {
     controls: OrbitControls;
     model = new T.Group();
     manipulator!: ModelManipulator;
+    hands!: XRHands;
     modelMenu = false;
     pins = new T.Group();
     avatars = new T.Group();
@@ -164,6 +166,7 @@ export class Viewer {
         this.controls.minDistance = .2;
         this.controls.maxDistance = 400;
         this.manipulator = new ModelManipulator(this);
+        this.hands = new XRHands(this);
         this.scene.add(new T.HemisphereLight(0xffffff, 0xb3becb, 2.4));
         const sun = new T.DirectionalLight(0xfff5e9, 3.1);
         sun.position.set(15, 30, 12);
@@ -198,9 +201,9 @@ export class Viewer {
         window.addEventListener('blur', this.blur);
         document.addEventListener('visibilitychange', this.visibilityChanged);
         this.renderer.domElement.addEventListener('webglcontextlost', this.contextLost);
-        this.renderer.xr.addEventListener('sessionstart', () => { this.setFly(false); this.blur(); this.menuAnchor.reset(); this.isXR = true; this.avatarMenu = false; this.modelMenu = false; this.makeVRMenu(); this.vrMenu.visible = true; this.controls.enabled = false; this.rig.position.set(0, 0, 11); this.camera.position.set(0, 1.6, 0); this.camera.rotation.set(0, 0, 0); this.placing = false; this.keyboard.visible = false; });
+        this.renderer.xr.addEventListener('sessionstart', () => { this.setFly(false); this.blur(); this.menuAnchor.reset(); this.isXR = true; this.avatarMenu = false; this.modelMenu = false; this.makeVRMenu(); this.vrMenu.visible = true; this.controls.enabled = false; this.rig.rotation.set(0, 0, 0); this.rig.position.set(0, 0, 11); this.camera.position.set(0, 1.6, 0); this.camera.rotation.set(0, 0, 0); this.placing = false; this.keyboard.visible = false; });
         document.addEventListener('fullscreenchange', this.fullscreenChanged);
-        this.renderer.xr.addEventListener('sessionend', () => { this.manipulator.finish(); this.modelMenu = false; this.isXR = false; this.vrMenu.visible = false; this.reticle.visible = false; this.placing = false; this.rig.position.set(0, 0, 0); this.keyboard.visible = false; this.setWalk(false); this.fit(); });
+        this.renderer.xr.addEventListener('sessionend', () => { this.manipulator.finish(); this.modelMenu = false; this.hands.clear(); this.isXR = false; this.rig.rotation.set(0, 0, 0); this.vrMenu.visible = false; this.reticle.visible = false; this.placing = false; this.rig.position.set(0, 0, 0); this.keyboard.visible = false; this.setWalk(false); this.fit(); });
         this.demo();
         this.makeVRMenu();
         this.resize();
@@ -219,11 +222,12 @@ export class Viewer {
             this.controllers.push(c);
             c.addEventListener('connected', (e: any) => { c.userData.hand = e.data.handedness; c.userData.source = e.data; });
             c.addEventListener('selectstart', () => this.controllerSelect(c, c.userData.hand === 'left' ? 0 : 1));
-            c.addEventListener('selectend', () => this.manipulator.endController(c, 'select'));
+            c.addEventListener('selectend', () => { if (this.hands.isHand(c.userData.source)) this.hands.select(c.userData.source, false); else this.manipulator.endController(c, 'select'); });
             c.addEventListener('squeezeend', () => this.manipulator.endController(c, 'squeeze'));
-            c.addEventListener('disconnected', () => { this.manipulator.endController(c); c.userData.source = null; });
+            c.addEventListener('disconnected', () => { if (c.userData.source) this.hands.release(c.userData.source); this.manipulator.endController(c); c.userData.source = null; });
             const hand = this.renderer.xr.getHand(i); hand.add(new XRHandModelFactory().createHandModel(hand, 'spheres')); this.rig.add(hand);
             c.addEventListener('squeezestart', () => {
+                if (this.hands.isHand(c.userData.source)) return;
                 if (this.modelMenu) { this.manipulator.startController(c, 'squeeze'); return; }
                 if (c.userData.hand !== 'left') {
                     document.querySelector<HTMLButtonElement>('.mic-button')?.click();
@@ -375,7 +379,7 @@ export class Viewer {
         this.camera.updateProjectionMatrix();
         this.controls.update();
     }
-    setPlacing(v: boolean) { this.manipulator.finish(); this.placing = v; }
+    setPlacing(v: boolean) { this.manipulator.finish(); this.modelMenu = false; this.avatarMenu = false; this.removeMode = false; this.placing = v; this.stopMovement(); this.makeVRMenu(); }
     section(v: boolean) { this.clip.constant = new T.Box3().setFromObject(this.model).getCenter(new T.Vector3()).y; this.renderer.clippingPlanes = v ? [this.clip] : []; }
     xray(v: boolean) {
         this.model.traverse((o: any) => {
@@ -421,7 +425,7 @@ export class Viewer {
         else { this.camera.position.add(delta); this.controls.target.add(delta); }
     }
     focus(p: number[]) { this.setWalk(false); const point = new T.Vector3(...p); this.controls.target.copy(point); this.camera.position.copy(point).add(new T.Vector3(4, 3, 5)); this.controls.update(); }
-    pose() { const v = new T.Vector3(); (this.isXR ? this.renderer.xr.getCamera() : this.camera).getWorldPosition(v); return v.toArray(); }
+    pose() { const v = new T.Vector3(); (this.camera).getWorldPosition(v); return v.toArray(); }
     lookPointer: {
         id: number;
         x: number;
@@ -477,7 +481,7 @@ export class Viewer {
     };
     keyUp = (e: KeyboardEvent) => { this.keys.delete(e.key.toLowerCase()); };
     stopMovement() { this.keys.clear(); this.input.set(0, 0, 0); this.liftInput = 0; this.lookPointer = null; }
-    blur = () => { this.stopMovement(); this.manipulator?.finish(); };
+    blur = () => { this.stopMovement(); this.hands?.clear(); this.manipulator?.finish(); };
     visibilityChanged = () => { if (document.hidden) this.blur(); };
     contextLost = (e: Event) => { e.preventDefault(); this.notify('Graphics context lost. Reload to restore the model viewer.'); };
     moveInput(x: number, z: number) { this.input.set(x, 0, z); }
@@ -590,12 +594,12 @@ export class Viewer {
         }
         else if (this.isXR) {
             const dir = new T.Vector3();
-            this.renderer.xr.getCamera().getWorldDirection(dir);
+            this.camera.getWorldDirection(dir);
             this.snapTurn(-Math.atan2(-dir.x, -dir.z));
         }
     }
     step() {
-        const cam = this.isXR ? this.renderer.xr.getCamera() : this.camera;
+        const cam = this.camera;
         const dir = new T.Vector3();
         cam.getWorldDirection(dir);
         if (!this.flying) dir.y = 0;
@@ -606,7 +610,7 @@ export class Viewer {
         this.vrMenu.visible = (this.isXR || this.stereoscopic) && !this.keyboard.visible;
         if (!this.vrMenu.visible)
             return;
-        const cam = this.isXR ? this.renderer.xr.getCamera() : this.camera;
+        const cam = this.camera;
         const pos = new T.Vector3(), dir = new T.Vector3();
         cam.getWorldPosition(pos);
         cam.getWorldDirection(dir);
@@ -626,6 +630,7 @@ export class Viewer {
         this.removeMode = false;
         this.keyboard.visible = false;
         this.info.visible = false;
+        this.rig.rotation.set(0, 0, 0);
         this.rig.position.set(0, 0, this.isXR ? 11 : 0);
         if (!this.isXR) {
             this.camera.position.set(0, 1.65, 8);
@@ -641,8 +646,8 @@ export class Viewer {
         return true;
     }
     hitFromRay() {
-        this.ray.camera = this.isXR ? this.renderer.xr.getCamera() : this.camera;
-        const targets = [...this.buttons.filter(b => this.visibleButton(b)), ...this.pins.children];
+        this.ray.camera = this.camera;
+        const targets = this.keyboard.visible ? this.keyboard.children.filter(b => b.userData.action) : [...this.buttons.filter(b => this.visibleButton(b)), ...this.pins.children];
         const interactive = this.ray.intersectObjects(targets, false)[0];
         if (interactive)
             return interactive;
@@ -661,7 +666,7 @@ export class Viewer {
     teleport(point: T.Vector3) {
         if (this.isXR) {
             const head = new T.Vector3();
-            this.renderer.xr.getCamera().getWorldPosition(head);
+            this.camera.getWorldPosition(head);
             this.rig.position.x += point.x - head.x;
             this.rig.position.z += point.z - head.z;
             this.rig.position.y = point.y;
@@ -715,7 +720,7 @@ export class Viewer {
     clearModel() { this.manipulator.prepare(); this.loadVersion++; this.clear(this.model); this.modelAssetId = null; this.lastNotes = ''; this.clear(this.pins); }
     setUndo(action: (() => void) | null) { this.undoAction = action; this.makeVRMenu(); }
     clearPortals() { const ids = new Set<T.Object3D>(); this.portals.traverse(o => ids.add(o)); this.buttons = this.buttons.filter(b => !ids.has(b)); this.clear(this.portals); this.lastPortals = ''; this.hallMode = false; this.makeVRMenu(); }
-    shortcutPosition(index = 0) { const cam = this.isXR ? this.renderer.xr.getCamera() : this.camera; const pos = new T.Vector3(), dir = new T.Vector3(); cam.getWorldPosition(pos); cam.getWorldDirection(dir); const vr = this.isXR || this.stereoscopic; if (vr)
+    shortcutPosition(index = 0) { const cam = this.camera; const pos = new T.Vector3(), dir = new T.Vector3(); cam.getWorldPosition(pos); cam.getWorldDirection(dir); const vr = this.isXR || this.stereoscopic; if (vr)
         dir.y = 0; if (dir.lengthSq() < .01)
         dir.set(0, 0, -1); dir.normalize(); const side = new T.Vector3().crossVectors(dir, new T.Vector3(0, 1, 0)).normalize(); return pos.addScaledVector(dir, 6 + Math.floor(index / 3) * 2).addScaledVector(side, (index % 3 - 1) * 1.7).add(new T.Vector3(0, vr ? -.2 : -.8, 0)).toArray(); }
     setRoomShortcuts(links: any[], canManage: boolean) { this.setPortals(links.map(link => ({ ...link, id: link.target, shortcutId: link.id, portalPosition: link.position })), true, canManage); }
@@ -848,12 +853,12 @@ export class Viewer {
         close.userData.action = () => this.info.visible = false;
         this.info.add(close);
         this.buttons.push(close);
-        const cam = this.isXR ? this.renderer.xr.getCamera() : this.camera;
+        const cam = this.camera;
         const pos = new T.Vector3(), dir = new T.Vector3();
         cam.getWorldPosition(pos);
         cam.getWorldDirection(dir);
         this.info.position.copy(pos).addScaledVector(dir, 2);
-        this.info.quaternion.copy(cam.quaternion);
+        cam.getWorldQuaternion(this.info.quaternion);
         this.info.visible = true;
     }
     onOrientation = (e: DeviceOrientationEvent) => {
@@ -963,7 +968,7 @@ export class Viewer {
             this.buttons.push(b);
         }
     }
-    openKeyboard(p: number[], save: (s: string) => void, hint = 'Write a note. Aim, then tap or pull the trigger.') { this.keyboardHint = hint; this.keyboardPosition = p; this.saveKeyboard = save; this.keyboardText = ''; this.info.visible = false; this.drawKeyboard(); const cam = this.isXR ? this.renderer.xr.getCamera() : this.camera; const dir = new T.Vector3(); cam.getWorldDirection(dir); const pos = new T.Vector3(); cam.getWorldPosition(pos); this.keyboard.position.copy(pos).addScaledVector(dir, 1.7); this.keyboard.position.y = pos.y - .25; this.keyboard.quaternion.copy(cam.quaternion); this.keyboard.visible = true; }
+    openKeyboard(p: number[], save: (s: string) => void, hint = 'Write a note. Aim, then tap or pull the trigger.') { this.keyboardHint = hint; this.keyboardPosition = p; this.saveKeyboard = save; this.keyboardText = ''; this.info.visible = false; this.drawKeyboard(); const cam = this.camera; const dir = new T.Vector3(); cam.getWorldDirection(dir); const pos = new T.Vector3(); cam.getWorldPosition(pos); this.keyboard.position.copy(pos).addScaledVector(dir, 1.7); this.keyboard.position.y = pos.y - .25; cam.getWorldQuaternion(this.keyboard.quaternion); this.keyboard.visible = true; }
     drawKeyboard() {
         this.dwell.reset();
         this.buttons = this.buttons.filter(x => !this.keyboard.children.includes(x));
@@ -1003,11 +1008,7 @@ export class Viewer {
             [this.hallMode ? 'New room' : this.placing ? 'Note ON' : 'Note', () => {
                     if (this.hallMode)
                         this.onNewRoom?.();
-                    else {
-                        this.placing = !this.placing;
-                        this.removeMode = false;
-                        this.makeVRMenu();
-                    }
+                    else this.setPlacing(!this.placing);
                 }],
             [this.removeMode ? 'Remove ON' : 'Remove', () => { this.removeMode = !this.removeMode; this.placing = false; this.makeVRMenu(); }], ['Mic', () => document.querySelector<HTMLButtonElement>('.mic-button')?.click()],
             ['Step', () => this.step()], ['Center', () => this.centerView()], ['Session', () => this.onSession?.()], ['Undo', () => this.undoAction?.()], ['Exit', () => {
@@ -1026,11 +1027,14 @@ export class Viewer {
         actions.push([this.flying ? 'Fly ON' : 'Fly', () => this.setFly(!this.flying)]);
         if (this.flying) actions.push(['Up', () => this.flyStep(1)], ['Down', () => this.flyStep(-1)]);
         actions.push(['Avatar', () => { this.manipulator?.finish(); this.modelMenu = false; this.stopMovement(); this.avatarMenu = true; this.makeVRMenu(); }]);
-        actions.push(['Model', () => { if (!this.manipulator?.available) { this.notify('Open a model in a presentation room first.'); return; } this.stopMovement(); this.avatarMenu = false; this.modelMenu = true; this.manipulator.setEnabled(true); this.makeVRMenu(); }]);
+        actions.push(['Model', () => { if (!this.manipulator?.available) { this.notify('Open a model in a presentation room first.'); return; } this.stopMovement(); this.placing = false; this.removeMode = false; this.avatarMenu = false; this.modelMenu = true; this.manipulator.setEnabled(true); this.makeVRMenu(); }]);
+        actions.push(['Turn left', () => this.turnPlayer(Math.PI / 6)], ['Turn right', () => this.turnPlayer(-Math.PI / 6)]);
         if (this.modelMenu) {
             actions.splice(0, actions.length, ...(['left', 'up', 'right', 'near', 'down', 'far'] as const).map(direction => [direction[0].toUpperCase() + direction.slice(1), () => this.manipulator.nudge(direction)] as [string, () => void]),
                 ['Smaller', () => this.manipulator.scaleTo(this.manipulator.value().scale / 1.15)], ['Bigger', () => this.manipulator.scaleTo(this.manipulator.value().scale * 1.15)],
-                ['Reset model', () => this.manipulator.reset()], ['Bring here', () => this.manipulator.bringHere()],
+                ['Rotate left', () => this.manipulator.rotateBy(Math.PI / 12)], ['Rotate right', () => this.manipulator.rotateBy(-Math.PI / 12)],
+                ['Reset model', () => this.manipulator.reset()], ['Bring here', () => this.manipulator.bringHere()], ['Note', () => this.setPlacing(true)],
+                ['Turn left', () => this.turnPlayer(Math.PI / 6)], ['Turn right', () => this.turnPlayer(-Math.PI / 6)],
                 ['Done', () => { this.manipulator.finish(); this.modelMenu = false; this.makeVRMenu(); }]);
         }
         if (this.avatarMenu) {
@@ -1041,10 +1045,24 @@ export class Viewer {
             const preview = createAvatarMesh(this.selfAvatar);
             preview.scale.setScalar(.6); preview.position.set(0, .55, 0); this.vrMenu.add(preview);
         }
+        const hint = this.plane(this.canvasText(this.modelMenu ? 'Pinch / hold to move. Two hands: resize & turn.' : this.placing ? 'Aim at a model surface and pinch / select to add a note.' : 'Aim at a button and pinch / select. Turn buttons rotate you.', '#ffffff', 1024, 150, 38), 1.36, .2);
+        hint.position.set(0, .22, 0); this.vrMenu.add(hint);
         actions.forEach(([label, action], i) => { const b = this.plane(this.canvasText(label, label.includes('ON') ? '#fff0ad' : '#edf3f8', 512, 160, 58), .34, .12); b.position.set((i % 3 - 1) * .38, -Math.floor(i / 3) * .16, 0); b.userData.action = action; b.userData.menu = true; this.vrMenu.add(b); this.buttons.push(b); });
     }
-    snapTurn(angle: number) { const head = new T.Vector3(); this.renderer.xr.getCamera().getWorldPosition(head); const offset = head.sub(this.rig.position); const rotated = offset.clone().applyAxisAngle(new T.Vector3(0, 1, 0), angle); this.rig.rotateY(angle); this.rig.position.add(offset.sub(rotated)); }
+    snapTurn(angle: number) { const head = new T.Vector3(); this.camera.getWorldPosition(head); const offset = head.sub(this.rig.position); const rotated = offset.clone().applyAxisAngle(new T.Vector3(0, 1, 0), angle); this.rig.rotateY(angle); this.rig.position.add(offset.sub(rotated)); }
+    turnPlayer(angle: number) {
+        if (this.manipulator?.active) return;
+        if (this.isXR) this.snapTurn(angle);
+        else if (this.stereoscopic) {
+            if (this.orientationOffset !== null) this.orientationOffset -= angle;
+            this.camera.quaternion.premultiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), angle));
+            this.controls.target.copy(this.camera.position).add(this.camera.getWorldDirection(new T.Vector3()).multiplyScalar(10));
+        }
+        this.menuAnchor.turn(angle); this.dwell.reset();
+    }
     controllerSelect(c: T.Object3D, i: number) {
+        if (this.hands.isHand(c.userData.source)) { this.hands.select(c.userData.source, true); return; }
+        c.updateWorldMatrix(true, false);
         this.ray.setFromXRController(c as T.XRTargetRaySpace);
         const hit = this.hitFromRay();
         if (hit?.object.userData.action || this.placing || this.removeMode)
@@ -1054,6 +1072,13 @@ export class Viewer {
             this.teleport(hit.point);
     }
     updateMovement(dt: number) {
+        // Turning remains available in the Model menu; translation pauses during manipulation.
+        if (this.isXR && !this.keyboard.visible && !this.manipulator?.active) {
+            const right = [...(this.renderer.xr.getSession()?.inputSources || [])].find(source => source.handedness === 'right' && source.gamepad);
+            const stick = readStick(right?.gamepad?.axes);
+            if (Math.abs(stick.x) < .25) this.snapArmed = true;
+            else if (Math.abs(stick.x) > .65 && this.snapArmed) { this.snapArmed = false; this.turnPlayer(-Math.sign(stick.x) * Math.PI / 6); }
+        }
         if ((this.isXR || this.walking) && !this.keyboard.visible && !this.avatarMenu && !this.modelMenu && !this.manipulator?.active) {
             let x = this.input.x + (this.keys.has('d') ? 1 : 0) - (this.keys.has('a') ? 1 : 0), z = this.input.z + (this.keys.has('s') ? 1 : 0) - (this.keys.has('w') ? 1 : 0);
             let lift = this.liftInput + (this.keys.has('e') ? 1 : 0) - (this.keys.has('q') ? 1 : 0);
@@ -1062,12 +1087,6 @@ export class Viewer {
                     const stick = readStick(source.gamepad?.axes);
                     if (source.handedness === 'right') {
                         if (this.flying) lift -= stick.z;
-                        if (Math.abs(stick.x) < .25)
-                            this.snapArmed = true;
-                        else if (Math.abs(stick.x) > .65 && this.snapArmed) {
-                            this.snapArmed = false;
-                            this.snapTurn(-Math.sign(stick.x) * Math.PI / 6);
-                        }
                     }
                     else {
                         x += stick.x;
@@ -1075,15 +1094,18 @@ export class Viewer {
                     }
                 }
             const dir = new T.Vector3();
-            (this.isXR ? this.renderer.xr.getCamera() : this.camera).getWorldDirection(dir);
+            (this.camera).getWorldDirection(dir);
             const delta = movementDelta(dir.toArray(), x, z, lift, this.flying, dt);
             this.translate(new T.Vector3(delta.x, delta.y, delta.z));
         }
     }
-    animate = () => {
+    animate = (_time?: number, frame?: XRFrame) => {
         if (this.disposed)
             return;
         const dt = Math.min(this.clock.getDelta(), .05);
+        // Three's user camera is parented to the player rig; its world pose includes snap turns.
+        // XR's internal ArrayCamera is unparented, so Object3D world getters can discard that rig.
+        if (this.isXR) { this.rig.updateMatrixWorld(true); this.renderer.xr.updateCamera(this.camera); }
         if (this.stereoscopic && this.orientation) {
             const e = this.orientation;
             const orient = (screen.orientation?.angle || 0) * Math.PI / 180;
@@ -1098,7 +1120,10 @@ export class Viewer {
         }
         else if (!this.isXR && !this.walking && !this.manipulator.active)
             this.controls.update();
+        this.updateVRMenu();
+        this.scene.updateMatrixWorld(true);
         this.manipulator.updateXR();
+        this.hands.update(frame);
         this.updateMovement(dt);
         this.updateVRMenu();
         this.layoutFallbackLabels();
@@ -1115,6 +1140,6 @@ export class Viewer {
         if (this.stereoscopic && !document.fullscreenElement)
             document.querySelector<HTMLButtonElement>('.exit-stereo')?.click();
     };
-    dispose() { this.manipulator.finish(false); this.renderer.domElement.removeEventListener('pointerdown', this.pointerDown, true); this.renderer.domElement.removeEventListener('pointermove', this.pointerMove, true); this.renderer.domElement.removeEventListener('pointerup', this.pointerUp, true); this.renderer.domElement.removeEventListener('pointercancel', this.pointerCancelled, true); this.renderer.domElement.removeEventListener('lostpointercapture', this.pointerCancelled, true); this.renderer.domElement.removeEventListener('wheel', this.modelWheel, true); document.removeEventListener('visibilitychange', this.visibilityChanged); this.blur(); this.cardboardMask?.geometry.dispose(); this.cardboardMask?.material.dispose(); this.renderer.domElement.removeEventListener('contextmenu',this.contextMenu); document.removeEventListener('fullscreenchange', this.fullscreenChanged); this.disposed = true; this.renderer.setAnimationLoop(null); this.observer.disconnect(); window.removeEventListener('keydown', this.keyDown); window.removeEventListener('keyup', this.keyUp); window.removeEventListener('blur', this.blur); window.removeEventListener('deviceorientation', this.onOrientation); this.clear(this.model); this.clear(this.pins); this.clear(this.avatars); this.clear(this.pdfGroup); this.clear(this.keyboard); this.clear(this.portals); this.clear(this.info); this.clear(this.rig); this.controls.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); }
+    dispose() { this.hands.clear(); this.manipulator.finish(false); this.renderer.domElement.removeEventListener('pointerdown', this.pointerDown, true); this.renderer.domElement.removeEventListener('pointermove', this.pointerMove, true); this.renderer.domElement.removeEventListener('pointerup', this.pointerUp, true); this.renderer.domElement.removeEventListener('pointercancel', this.pointerCancelled, true); this.renderer.domElement.removeEventListener('lostpointercapture', this.pointerCancelled, true); this.renderer.domElement.removeEventListener('wheel', this.modelWheel, true); document.removeEventListener('visibilitychange', this.visibilityChanged); this.blur(); this.cardboardMask?.geometry.dispose(); this.cardboardMask?.material.dispose(); this.renderer.domElement.removeEventListener('contextmenu',this.contextMenu); document.removeEventListener('fullscreenchange', this.fullscreenChanged); this.disposed = true; this.renderer.setAnimationLoop(null); this.observer.disconnect(); window.removeEventListener('keydown', this.keyDown); window.removeEventListener('keyup', this.keyUp); window.removeEventListener('blur', this.blur); window.removeEventListener('deviceorientation', this.onOrientation); this.clear(this.model); this.clear(this.pins); this.clear(this.avatars); this.clear(this.pdfGroup); this.clear(this.keyboard); this.clear(this.portals); this.clear(this.info); this.clear(this.rig); this.controls.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); }
 }
 
