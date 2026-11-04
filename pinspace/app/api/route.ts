@@ -1,9 +1,10 @@
+import { normalizeModelTransform, validModelTransform } from '../../lib/model-transform.ts';
 import { normalizeAvatar, validateAvatar } from '../../lib/avatar.ts';
 import { shortcutPosition, shortcutTarget } from '../../lib/room-shortcuts.ts';
 import { validateDeck, readPresentation, validCamera } from '../../lib/presentation.ts';
 import { bucket } from '../../db/storage.mjs';
 import { getDb } from '../../db/index.ts';
-import { rooms, assets, notes, peers, signals, guests, audioPackets, roomShortcuts } from '../../db/schema.ts';
+import { rooms, assets, notes, peers, signals, guests, audioPackets, roomShortcuts, modelTransforms } from '../../db/schema.ts';
 import { eq, and, gt, lt, ne, desc, sql, isNull, asc, or } from 'drizzle-orm';
 export const dynamic = 'force-dynamic';
 const json = (v: unknown, status = 200) => Response.json(v, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -167,10 +168,29 @@ async function handle(req: Request) {
             }
             return json({ error: 'Unknown shortcut action.' }, 404);
         }
+        const publicTransform = (row: typeof modelTransforms.$inferSelect | undefined, asset: string) => ({ asset: asset === 'sample' ? null : asset, transform: normalizeModelTransform(row?.transform), revision: row?.revision || 0 });
+        if (path[2] === 'model-transform' && path.length === 3 && req.method === 'PATCH') {
+            const b: any = await req.json();
+            if (room === 'session-lounge' || !validModelTransform(b.transform) || !Number.isSafeInteger(b.revision) || b.revision < 0 || (b.asset != null && typeof b.asset !== 'string'))
+                return json({ error: 'Supply a valid model position and scale (10%–10,000%).' }, 400);
+            const asset = b.asset == null ? 'sample' : b.asset;
+            if (asset !== 'sample' && !await db.select().from(assets).where(and(eq(assets.id, asset), eq(assets.room, room), eq(assets.kind, 'glb'), isNull(assets.removedAt))).get())
+                return json({ error: 'Model not found in this room.' }, 404);
+            const id = room + ':' + asset;
+            const existing = await db.select().from(modelTransforms).where(eq(modelTransforms.id, id)).get();
+            const conflict = async () => json({ error: 'Another participant moved this model. The latest placement has been restored; try your move again.', record: publicTransform(await db.select().from(modelTransforms).where(eq(modelTransforms.id, id)).get(), asset) }, 409);
+            if ((existing?.revision || 0) !== b.revision) return conflict();
+            const transform = JSON.stringify(normalizeModelTransform(b.transform)), revision = b.revision + 1;
+            const saved = existing ? await db.update(modelTransforms).set({ transform, revision }).where(and(eq(modelTransforms.id, id), eq(modelTransforms.revision, b.revision))).returning({ id: modelTransforms.id }) :
+                await db.insert(modelTransforms).values({ id, room, asset, transform, revision }).onConflictDoNothing().returning({ id: modelTransforms.id });
+            if (!saved.length) return conflict();
+            return json({ record: { asset: asset === 'sample' ? null : asset, transform: normalizeModelTransform(b.transform), revision } });
+        }
         if (path.length === 2 && req.method === 'GET') {
             const [a, n, p, shortcuts] = await Promise.all([db.select().from(assets).where(and(eq(assets.room, room), isNull(assets.removedAt))), db.select().from(notes).where(and(eq(notes.room, room), isNull(notes.removedAt))), db.select({ id: peers.id, name: peers.name, pose: peers.pose, avatar: peers.avatar, mic: peers.mic }).from(peers).where(and(eq(peers.room, room), gt(peers.seen, now - 20000))), db.select({ id: roomShortcuts.id, target: roomShortcuts.target, title: rooms.title, position: roomShortcuts.position }).from(roomShortcuts).innerJoin(rooms, eq(roomShortcuts.target, rooms.id)).where(and(eq(roomShortcuts.room, room), isNull(roomShortcuts.removedAt), isNull(rooms.removedAt), eq(rooms.publicRoom, 1)))]);
+            const transforms = await db.select().from(modelTransforms).where(eq(modelTransforms.room, room));
             const { presentationDeck, presentationState, ...publicRoom } = r;
-            return json({ shortcuts: shortcuts.map(x => ({ ...x, canManage: r.owner === owner })), presentation: readPresentation(r, r.owner === owner, a, now), room: { ...publicRoom, canManage: r.owner === owner }, assets: a.map(x => ({ ...x, canManage: r.owner === owner || x.owner === owner })), notes: n.filter(x => !x.asset || a.some(f => f.id === x.asset)).map(x => ({ ...x, canManage: r.owner === owner || x.owner === owner })), peers: p.map(peer => ({ ...peer, avatar: normalizeAvatar(peer.avatar) })) });
+            return json({ modelTransforms: transforms.filter(t => t.asset === 'sample' || a.some(asset => asset.id === t.asset)).map(t => publicTransform(t, t.asset)), shortcuts: shortcuts.map(x => ({ ...x, canManage: r.owner === owner })), presentation: readPresentation(r, r.owner === owner, a, now), room: { ...publicRoom, canManage: r.owner === owner }, assets: a.map(x => ({ ...x, canManage: r.owner === owner || x.owner === owner })), notes: n.filter(x => !x.asset || a.some(f => f.id === x.asset)).map(x => ({ ...x, canManage: r.owner === owner || x.owner === owner })), peers: p.map(peer => ({ ...peer, avatar: normalizeAvatar(peer.avatar) })) });
         }
         if (path[2] === 'presentation' && req.method === 'POST') {
             if (r.owner !== owner)

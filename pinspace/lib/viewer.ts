@@ -1,3 +1,6 @@
+import { ModelManipulator } from './model-manipulator';
+import { defaultModelTransform, type ModelTransform } from './model-transform';
+import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 import * as T from 'three';
 import { DwellSelector, readStick, tapAction, GazeMenuAnchor, movementDelta } from './vr-controls';
 import { cardboardLayout, loadCardboard, normalizeCardboard, type CardboardSettings } from './cardboard';
@@ -41,12 +44,14 @@ export class Viewer {
                 number
             ]);
     }
-    setPresentationContent(kind: string) { this.model.visible = kind !== 'pdf'; this.pins.visible = kind !== 'pdf'; this.pdfGroup.visible = kind === 'pdf'; }
+    setPresentationContent(kind: string) { if (kind === 'pdf') this.manipulator?.finish(); this.model.visible = kind !== 'pdf'; this.pins.visible = kind !== 'pdf'; this.pdfGroup.visible = kind === 'pdf'; this.manipulator?.onState?.(); }
     scene = new T.Scene();
     camera = new T.PerspectiveCamera(42, 1, .05, 5000);
     renderer: T.WebGLRenderer;
     controls: OrbitControls;
     model = new T.Group();
+    manipulator!: ModelManipulator;
+    modelMenu = false;
     pins = new T.Group();
     avatars = new T.Group();
     rig = new T.Group();
@@ -158,6 +163,7 @@ export class Viewer {
         this.controls.maxPolarAngle = Math.PI * .49;
         this.controls.minDistance = .2;
         this.controls.maxDistance = 400;
+        this.manipulator = new ModelManipulator(this);
         this.scene.add(new T.HemisphereLight(0xffffff, 0xb3becb, 2.4));
         const sun = new T.DirectionalLight(0xfff5e9, 3.1);
         sun.position.set(15, 30, 12);
@@ -180,18 +186,21 @@ export class Viewer {
         this.scene.add(grid);
         this.observer = new ResizeObserver(() => this.resize());
         this.observer.observe(this.host);
-        this.renderer.domElement.addEventListener('pointerdown', this.pointerDown);
-        this.renderer.domElement.addEventListener('pointerup', this.pointerUp);
-        this.renderer.domElement.addEventListener('pointermove', this.pointerMove);
+        this.renderer.domElement.addEventListener('pointerdown', this.pointerDown, true);
+        this.renderer.domElement.addEventListener('pointerup', this.pointerUp, true);
+        this.renderer.domElement.addEventListener('pointermove', this.pointerMove, true);
+        this.renderer.domElement.addEventListener('pointercancel', this.pointerCancelled, true);
+        this.renderer.domElement.addEventListener('lostpointercapture', this.pointerCancelled, true);
+        this.renderer.domElement.addEventListener('wheel', this.modelWheel, { capture: true, passive: false });
         this.renderer.domElement.addEventListener('contextmenu',this.contextMenu);
         window.addEventListener('keydown', this.keyDown);
         window.addEventListener('keyup', this.keyUp);
         window.addEventListener('blur', this.blur);
         document.addEventListener('visibilitychange', this.visibilityChanged);
         this.renderer.domElement.addEventListener('webglcontextlost', this.contextLost);
-        this.renderer.xr.addEventListener('sessionstart', () => { this.setFly(false); this.blur(); this.menuAnchor.reset(); this.isXR = true; this.avatarMenu = false; this.makeVRMenu(); this.vrMenu.visible = true; this.controls.enabled = false; this.rig.position.set(0, 0, 11); this.camera.position.set(0, 1.6, 0); this.camera.rotation.set(0, 0, 0); this.placing = false; this.keyboard.visible = false; });
+        this.renderer.xr.addEventListener('sessionstart', () => { this.setFly(false); this.blur(); this.menuAnchor.reset(); this.isXR = true; this.avatarMenu = false; this.modelMenu = false; this.makeVRMenu(); this.vrMenu.visible = true; this.controls.enabled = false; this.rig.position.set(0, 0, 11); this.camera.position.set(0, 1.6, 0); this.camera.rotation.set(0, 0, 0); this.placing = false; this.keyboard.visible = false; });
         document.addEventListener('fullscreenchange', this.fullscreenChanged);
-        this.renderer.xr.addEventListener('sessionend', () => { this.isXR = false; this.vrMenu.visible = false; this.reticle.visible = false; this.placing = false; this.rig.position.set(0, 0, 0); this.keyboard.visible = false; this.setWalk(false); this.fit(); });
+        this.renderer.xr.addEventListener('sessionend', () => { this.manipulator.finish(); this.modelMenu = false; this.isXR = false; this.vrMenu.visible = false; this.reticle.visible = false; this.placing = false; this.rig.position.set(0, 0, 0); this.keyboard.visible = false; this.setWalk(false); this.fit(); });
         this.demo();
         this.makeVRMenu();
         this.resize();
@@ -208,9 +217,14 @@ export class Viewer {
             c.add(line);
             this.rig.add(c);
             this.controllers.push(c);
-            c.addEventListener('connected', (e: any) => { c.userData.hand = e.data.handedness; });
+            c.addEventListener('connected', (e: any) => { c.userData.hand = e.data.handedness; c.userData.source = e.data; });
             c.addEventListener('selectstart', () => this.controllerSelect(c, c.userData.hand === 'left' ? 0 : 1));
+            c.addEventListener('selectend', () => this.manipulator.endController(c, 'select'));
+            c.addEventListener('squeezeend', () => this.manipulator.endController(c, 'squeeze'));
+            c.addEventListener('disconnected', () => { this.manipulator.endController(c); c.userData.source = null; });
+            const hand = this.renderer.xr.getHand(i); hand.add(new XRHandModelFactory().createHandModel(hand, 'spheres')); this.rig.add(hand);
             c.addEventListener('squeezestart', () => {
+                if (this.modelMenu) { this.manipulator.startController(c, 'squeeze'); return; }
                 if (c.userData.hand !== 'left') {
                     document.querySelector<HTMLButtonElement>('.mic-button')?.click();
                 }
@@ -244,7 +258,8 @@ export class Viewer {
         });
         g.clear();
     }
-    demo() {
+    demo(transform: ModelTransform = defaultModelTransform()) {
+        this.manipulator.prepare();
         this.loadVersion++;
         this.hallMode = false;
         this.modelAssetId = null;
@@ -303,23 +318,27 @@ export class Viewer {
             box(3, 6.95, z, 7.8, .06, .06, rail);
         for (let x = -.9; x < 7; x += .9)
             box(x, 6.7, 4.25, .05, .7, .05, rail);
+        this.manipulator.loaded(transform);
         this.fit();
     }
-    async loadModel(url: string) {
+    async loadModel(url: string, asset: string | null = null, transform: ModelTransform = defaultModelTransform()) {
+        this.manipulator.finish(); this.manipulator.ready = false; this.manipulator.onState?.();
         const version = ++this.loadVersion;
         const loader = new GLTFLoader();
         const draco = new DRACOLoader();
         draco.setDecoderPath('/draco/');
         loader.setDRACOLoader(draco);
         loader.setMeshoptDecoder(MeshoptDecoder);
-        const gltf = await loader.loadAsync(url);
-        if (version !== this.loadVersion)
-            return;
+        let gltf;
+        try { gltf = await loader.loadAsync(url); } catch (error) { if (version === this.loadVersion) { this.manipulator.ready = !!this.model.children.length; this.manipulator.onState?.(); } draco.dispose(); throw error; }
+        if (version !== this.loadVersion) { draco.dispose(); return; }
         const obj = gltf.scene;
         const bounds = new T.Box3().setFromObject(obj);
         if (bounds.isEmpty())
             throw Error('The model contains no visible geometry.');
+        this.manipulator.prepare();
         this.clear(this.model);
+        this.modelAssetId = asset;
         const center = bounds.getCenter(new T.Vector3());
         obj.position.sub(new T.Vector3(center.x, bounds.min.y, center.z));
         obj.traverse((o: any) => {
@@ -331,6 +350,7 @@ export class Viewer {
         this.model.add(obj);
         draco.dispose();
         this.lastNotes = '';
+        this.manipulator.loaded(transform);
         this.fit();
     }
     fit() {
@@ -355,7 +375,7 @@ export class Viewer {
         this.camera.updateProjectionMatrix();
         this.controls.update();
     }
-    setPlacing(v: boolean) { this.placing = v; }
+    setPlacing(v: boolean) { this.manipulator.finish(); this.placing = v; }
     section(v: boolean) { this.clip.constant = new T.Box3().setFromObject(this.model).getCenter(new T.Vector3()).y; this.renderer.clippingPlanes = v ? [this.clip] : []; }
     xray(v: boolean) {
         this.model.traverse((o: any) => {
@@ -371,6 +391,7 @@ export class Viewer {
         });
     }
     setWalk(v: boolean) {
+        this.manipulator?.finish();
         this.setFly(false);
         const was = this.walking;
         this.walking = v;
@@ -408,6 +429,7 @@ export class Viewer {
     } | null = null;
     contextMenu=(e:Event)=>{if(this.stereoscopic)e.preventDefault();};
     pointerMove = (e: PointerEvent) => {
+        if (this.manipulator.pointerMove(e)) return;
         const last = this.lookPointer;
         if (!last || last.id !== e.pointerId)
             return;
@@ -422,8 +444,9 @@ export class Viewer {
         const dir = new T.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
         this.controls.target.copy(this.camera.position).addScaledVector(dir, 10);
     };
-    pointerDown = (e: PointerEvent) => { this.down = { x: e.clientX, y: e.clientY, time: performance.now() }; this.lookPointer = { id: e.pointerId, x: e.clientX, y: e.clientY }; };
+    pointerDown = (e: PointerEvent) => { if (this.manipulator.pointerDown(e)) return; this.down = { x: e.clientX, y: e.clientY, time: performance.now() }; this.lookPointer = { id: e.pointerId, x: e.clientX, y: e.clientY }; };
     pointerUp = (e: PointerEvent) => {
+        if (this.manipulator.pointerUp(e)) { this.lookPointer = null; return; }
         this.lookPointer = null;
         if (Math.hypot(e.clientX - this.down.x, e.clientY - this.down.y) > 8)
             return;
@@ -442,6 +465,8 @@ export class Viewer {
         this.ray.setFromCamera(this.pointer, this.camera);
         this.activateHit(this.hitFromRay(), this.walking);
     };
+    pointerCancelled = (e: PointerEvent) => { this.manipulator.pointerUp(e); this.lookPointer = null; };
+    modelWheel = (e: WheelEvent) => this.manipulator.wheel(e);
     keyDown = (e: KeyboardEvent) => {
         if ((e.target as HTMLElement).matches('input,textarea,select,[contenteditable="true"]'))
             return;
@@ -452,14 +477,14 @@ export class Viewer {
     };
     keyUp = (e: KeyboardEvent) => { this.keys.delete(e.key.toLowerCase()); };
     stopMovement() { this.keys.clear(); this.input.set(0, 0, 0); this.liftInput = 0; this.lookPointer = null; }
-    blur = () => this.stopMovement();
+    blur = () => { this.stopMovement(); this.manipulator?.finish(); };
     visibilityChanged = () => { if (document.hidden) this.blur(); };
     contextLost = (e: Event) => { e.preventDefault(); this.notify('Graphics context lost. Reload to restore the model viewer.'); };
     moveInput(x: number, z: number) { this.input.set(x, 0, z); }
     async enterVR() {
         if (!navigator.xr)
             throw Error('This browser does not support WebXR.');
-        const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
+        const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] });
         this.renderer.xr.setReferenceSpaceType('local-floor');
         await this.renderer.xr.setSession(session);
     }
@@ -469,7 +494,7 @@ export class Viewer {
         if (v && !this.stereoscopic) this.regularFov = this.camera.fov;
         this.vrCam.aspect = 1;
         this.stereoscopic = v;
-        this.avatarMenu = false; this.makeVRMenu();
+        this.avatarMenu = false; this.modelMenu = false; this.manipulator.finish(); this.makeVRMenu();
         this.camera.fov = v ? this.cardboardSettings.fov : this.regularFov;
         this.resize();
         this.menuAnchor.reset();
@@ -591,6 +616,7 @@ export class Viewer {
         this.vrMenu.updateMatrixWorld(true);
     }
     resetNavigation() {
+        this.modelMenu = false; this.manipulator?.finish(false);
         this.avatarMenu = false;
         this.setFly(false);
         this.blur();
@@ -648,12 +674,12 @@ export class Viewer {
     }
     activateHit(hit: T.Intersection | undefined, allowMove = true) {
         if (!hit) {
-            if (this.flying && allowMove && !this.placing && !this.removeMode && !this.keyboard.visible && !this.avatarMenu) this.step();
+            if (this.flying && allowMove && !this.placing && !this.removeMode && !this.keyboard.visible && !this.avatarMenu && !this.modelMenu) this.step();
             return;
         }
         const data = hit.object.userData;
         const ui = !!data.action;
-        if (this.avatarMenu && !ui) return;
+        if ((this.avatarMenu || this.modelMenu) && !ui) return;
         const action = tapAction({ interactive: ui, noteMode: this.placing, removeMode: this.removeMode, walkable: allowMove && this.walkable(hit) });
         if (this.removeMode && !data.menu) {
             const item = data.removeTag || (this.modelAssetId && this.isModelObject(hit.object) ? { kind: 'assets', id: this.modelAssetId, label: 'model' } : null);
@@ -671,7 +697,7 @@ export class Viewer {
         if (action === 'note' && this.isModelObject(hit.object)) {
             this.placing = false;
             this.makeVRMenu();
-            this.onPin(hit.point.toArray());
+            this.onPin(this.manipulator.localPoint(hit.point.toArray()));
         }
         else if (this.flying && allowMove && !this.placing && !this.removeMode && !this.keyboard.visible)
             this.step();
@@ -686,7 +712,7 @@ export class Viewer {
     }
     selectGaze() { this.activateHit(this.gazeHit()); this.dwell.reset(); }
     clearPdf() { this.lastPresentationPdf = null; const ids = new Set(this.pdfGroup.children); this.buttons = this.buttons.filter(b => !ids.has(b)); this.clear(this.pdfGroup); this.pdfAssetId = null; }
-    clearModel() { this.loadVersion++; this.clear(this.model); this.modelAssetId = null; this.lastNotes = ''; this.clear(this.pins); }
+    clearModel() { this.manipulator.prepare(); this.loadVersion++; this.clear(this.model); this.modelAssetId = null; this.lastNotes = ''; this.clear(this.pins); }
     setUndo(action: (() => void) | null) { this.undoAction = action; this.makeVRMenu(); }
     clearPortals() { const ids = new Set<T.Object3D>(); this.portals.traverse(o => ids.add(o)); this.buttons = this.buttons.filter(b => !ids.has(b)); this.clear(this.portals); this.lastPortals = ''; this.hallMode = false; this.makeVRMenu(); }
     shortcutPosition(index = 0) { const cam = this.isXR ? this.renderer.xr.getCamera() : this.camera; const pos = new T.Vector3(), dir = new T.Vector3(); cam.getWorldPosition(pos); cam.getWorldDirection(dir); const vr = this.isXR || this.stereoscopic; if (vr)
@@ -999,7 +1025,14 @@ export class Viewer {
         }
         actions.push([this.flying ? 'Fly ON' : 'Fly', () => this.setFly(!this.flying)]);
         if (this.flying) actions.push(['Up', () => this.flyStep(1)], ['Down', () => this.flyStep(-1)]);
-        actions.push(['Avatar', () => { this.stopMovement(); this.avatarMenu = true; this.makeVRMenu(); }]);
+        actions.push(['Avatar', () => { this.manipulator?.finish(); this.modelMenu = false; this.stopMovement(); this.avatarMenu = true; this.makeVRMenu(); }]);
+        actions.push(['Model', () => { if (!this.manipulator?.available) { this.notify('Open a model in a presentation room first.'); return; } this.stopMovement(); this.avatarMenu = false; this.modelMenu = true; this.manipulator.setEnabled(true); this.makeVRMenu(); }]);
+        if (this.modelMenu) {
+            actions.splice(0, actions.length, ...(['left', 'up', 'right', 'near', 'down', 'far'] as const).map(direction => [direction[0].toUpperCase() + direction.slice(1), () => this.manipulator.nudge(direction)] as [string, () => void]),
+                ['Smaller', () => this.manipulator.scaleTo(this.manipulator.value().scale / 1.15)], ['Bigger', () => this.manipulator.scaleTo(this.manipulator.value().scale * 1.15)],
+                ['Reset model', () => this.manipulator.reset()], ['Bring here', () => this.manipulator.bringHere()],
+                ['Done', () => { this.manipulator.finish(); this.modelMenu = false; this.makeVRMenu(); }]);
+        }
         if (this.avatarMenu) {
             actions.splice(0, actions.length,
                 ['Skin tone', () => this.changeAvatar('skin')], ['Shirt color', () => this.changeAvatar('shirt')], ['Hair color', () => this.changeAvatar('hair')],
@@ -1016,11 +1049,12 @@ export class Viewer {
         const hit = this.hitFromRay();
         if (hit?.object.userData.action || this.placing || this.removeMode)
             this.activateHit(hit, true);
+        else if (this.modelMenu) this.manipulator.startController(c, 'select');
         else if (i === 0 && hit && this.walkable(hit))
             this.teleport(hit.point);
     }
     updateMovement(dt: number) {
-        if ((this.isXR || this.walking) && !this.keyboard.visible && !this.avatarMenu) {
+        if ((this.isXR || this.walking) && !this.keyboard.visible && !this.avatarMenu && !this.modelMenu && !this.manipulator?.active) {
             let x = this.input.x + (this.keys.has('d') ? 1 : 0) - (this.keys.has('a') ? 1 : 0), z = this.input.z + (this.keys.has('s') ? 1 : 0) - (this.keys.has('w') ? 1 : 0);
             let lift = this.liftInput + (this.keys.has('e') ? 1 : 0) - (this.keys.has('q') ? 1 : 0);
             if (this.isXR)
@@ -1062,8 +1096,9 @@ export class Viewer {
             }
             this.camera.quaternion.premultiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), -this.orientationOffset));
         }
-        else if (!this.isXR && !this.walking)
+        else if (!this.isXR && !this.walking && !this.manipulator.active)
             this.controls.update();
+        this.manipulator.updateXR();
         this.updateMovement(dt);
         this.updateVRMenu();
         this.layoutFallbackLabels();
@@ -1080,6 +1115,6 @@ export class Viewer {
         if (this.stereoscopic && !document.fullscreenElement)
             document.querySelector<HTMLButtonElement>('.exit-stereo')?.click();
     };
-    dispose() { document.removeEventListener('visibilitychange', this.visibilityChanged); this.blur(); this.cardboardMask?.geometry.dispose(); this.cardboardMask?.material.dispose(); this.renderer.domElement.removeEventListener('contextmenu',this.contextMenu); document.removeEventListener('fullscreenchange', this.fullscreenChanged); this.disposed = true; this.renderer.setAnimationLoop(null); this.observer.disconnect(); window.removeEventListener('keydown', this.keyDown); window.removeEventListener('keyup', this.keyUp); window.removeEventListener('blur', this.blur); window.removeEventListener('deviceorientation', this.onOrientation); this.clear(this.model); this.clear(this.pins); this.clear(this.avatars); this.clear(this.pdfGroup); this.clear(this.keyboard); this.clear(this.portals); this.clear(this.info); this.controls.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); }
+    dispose() { this.manipulator.finish(false); this.renderer.domElement.removeEventListener('pointerdown', this.pointerDown, true); this.renderer.domElement.removeEventListener('pointermove', this.pointerMove, true); this.renderer.domElement.removeEventListener('pointerup', this.pointerUp, true); this.renderer.domElement.removeEventListener('pointercancel', this.pointerCancelled, true); this.renderer.domElement.removeEventListener('lostpointercapture', this.pointerCancelled, true); this.renderer.domElement.removeEventListener('wheel', this.modelWheel, true); document.removeEventListener('visibilitychange', this.visibilityChanged); this.blur(); this.cardboardMask?.geometry.dispose(); this.cardboardMask?.material.dispose(); this.renderer.domElement.removeEventListener('contextmenu',this.contextMenu); document.removeEventListener('fullscreenchange', this.fullscreenChanged); this.disposed = true; this.renderer.setAnimationLoop(null); this.observer.disconnect(); window.removeEventListener('keydown', this.keyDown); window.removeEventListener('keyup', this.keyUp); window.removeEventListener('blur', this.blur); window.removeEventListener('deviceorientation', this.onOrientation); this.clear(this.model); this.clear(this.pins); this.clear(this.avatars); this.clear(this.pdfGroup); this.clear(this.keyboard); this.clear(this.portals); this.clear(this.info); this.clear(this.rig); this.controls.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); }
 }
 

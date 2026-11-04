@@ -102,3 +102,27 @@ button.avatar-customize{border:1px solid #cbd9e2;min-width:34px;min-height:34px}
 .avatar-dialog .avatar-name{margin:0}
 .avatar-dialog .avatar-name input{margin:0}
 .avatar-dialog .avatar-glasses{flex-direction:row;margin:0}
+/* Shared model manipulation panel. */
+.model-button{min-height:40px;border:1px solid #d1dbe5;border-radius:6px;padding:9px 12px;background:#f6f8faed;font-size:11px;white-space:nowrap;margin-left:auto}
+.model-button.active{background:#2d596d;color:#fff;border-color:#2d596d}
+.model-button+.fly-button{margin-left:0}
+.model-controls{position:absolute;right:18px;top:76px;z-index:5;width:260px;max-height:calc(100% - 160px);overflow:auto;padding:14px;border:1px solid #cfdce5;border-radius:10px;background:#fffffffa;box-shadow:0 8px 30px #20394c20;color:#344e63}
+.model-controls header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+.model-controls header strong{font-size:13px}
+.model-controls p{font-size:10px;line-height:1.7;color:#718597;margin:10px 0}
+.model-drag-toggle{display:flex;align-items:center;gap:8px;font-size:12px;min-height:32px}
+.model-controls input[type=checkbox]{accent-color:#3b7085}
+.model-controls fieldset{border:0;padding:0;margin:14px 0;min-width:0}
+.model-controls legend{font-size:11px;font-weight:600;margin-bottom:6px}
+.model-controls input[type=range]{width:100%;min-height:36px;accent-color:#3b7085}
+.model-controls input[type=number]{width:100%;min-width:0;min-height:36px;border:1px solid #d2dee6;border-radius:5px;background:#fafcfd;padding:6px;color:#355269;font-size:11px}
+.model-percent{display:flex;align-items:center;gap:6px;font-size:11px}
+.model-position{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.model-position label{font-size:10px;display:flex;flex-direction:column;gap:4px}
+.model-step-buttons{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.model-step-buttons button,.model-controls footer button{border:1px solid #d3dfe6;background:#f3f8fa;border-radius:5px;min-height:40px;padding:6px;font-size:10px}
+.model-controls footer{display:flex;gap:7px;margin-top:10px}
+.model-controls footer button{flex:1}
+.workspace:has(.exit-stereo) .model-controls{display:none}
+@media(max-width:600px){.model-controls{top:70px;right:12px;width:min(260px,calc(100% - 24px))}.model-button{padding:9px;font-size:10px}.bottom-stage{gap:6px}.bottom-stage .navigation-hint{display:none}.model-controls input[type=number]{min-height:42px}}
+.stage:has(>.error-banner) .model-controls{top:124px;max-height:calc(100% - 205px)}

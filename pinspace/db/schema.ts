@@ -8,3 +8,5 @@ export const signals = sqliteTable('signals', { id: text('id').primaryKey(), roo
 export const audioPackets = sqliteTable('audio_packets', { id: integer('id').primaryKey({ autoIncrement: true }), room: text('room').notNull(), sender: text('sender').notNull(), seq: integer('seq').notNull(), data: text('data').notNull(), created: integer('created').notNull() }, t => [index('audio_room_cursor').on(t.room, t.id), uniqueIndex('audio_sender_seq').on(t.sender, t.seq)]);
 export const roomShortcuts = sqliteTable('room_shortcuts', { id: text('id').primaryKey(), room: text('room').notNull(), target: text('target').notNull(), position: text('position').notNull(), created: integer('created').notNull(), removedAt: integer('removed_at') }, t => [uniqueIndex('shortcut_room_target').on(t.room, t.target)]);
 
+
+export const modelTransforms = sqliteTable('model_transforms', { id: text('id').primaryKey(), room: text('room').notNull(), asset: text('asset').notNull(), transform: text('transform').notNull(), revision: integer('revision').notNull().default(0) }, t => [uniqueIndex('model_transform_room_asset').on(t.room, t.asset)]);
