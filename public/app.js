@@ -646,12 +646,35 @@
 
   function buildVenue() {
     const root = $('#venue');
-    if (!root || root.children.length) return;
-    const box = (parent, pos, w, h, d, mat, cls, rot) => {
-      const e = el('a-box', { position: pos, width: w, height: h, depth: d }, parent);
+    if (!root || root.children.length || root.__built) return;
+    root.__built = true;
+    const L = window.VSNLook;
+    const H = HALL.half, WH = HALL.wallH;
+    // Decoration is plain three.js (fast); only surfaces you can click are A-Frame entities.
+    const deco = new THREE.Group();
+    root.object3D.add(deco);
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+    const planeGeo = new THREE.PlaneGeometry(1, 1);
+    const add = (geo, mat, pos, scale, rot, cast, receive) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(pos[0], pos[1], pos[2]);
+      if (scale) m.scale.set(scale[0], scale[1], scale[2]);
+      if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
+      m.castShadow = !!cast; m.receiveShadow = !!receive;
+      deco.add(m);
+      return m;
+    };
+    const floorDecal = (canvasEl, x, z, w, d, rotY, opacity, y) =>
+      add(planeGeo, L.decal(canvasEl, opacity), [x, y || 0.012, z], [w, d, 1], [-Math.PI / 2, 0, rotY || 0]);
+    // An interactive surface: an A-Frame entity (so it can be clicked and pinned) holding our own
+    // textured mesh. Using a plain entity keeps A-Frame from replacing the material.
+    const surface = (parent, pos, w, h, d, mat, cls, cast, geo) => {
+      const e = el('a-entity', { position: pos }, parent);
       if (cls) e.className = cls;
-      if (rot) e.setAttribute('rotation', rot);
-      e.setAttribute('material', mat);
+      const mesh = new THREE.Mesh(geo || boxGeo, mat);
+      if (!geo) mesh.scale.set(w, h, d);
+      mesh.castShadow = !!cast; mesh.receiveShadow = true;
+      e.setObject3D('mesh', mesh);
       return e;
     };
     const txt = (parent, pos, value, width, color, wrap) => {
@@ -659,63 +682,118 @@
       t.setAttribute('text', { value, align: 'center', color: color || '#ffffff', width, wrapCount: wrap || 24 });
       return t;
     };
-    const H = HALL.half, WH = HALL.wallH;
-    // floor with aisle lines
-    const fl = el('a-plane', { rotation: '-90 0 0', position: '0 0.004 0', width: 30, height: 30 }, root);
-    fl.setAttribute('material', { color: C3D.concrete, roughness: 0.42, metalness: 0.05 });
-    for (const x of [-3.2, 3.2]) {
-      const ln = el('a-plane', { rotation: '-90 0 0', position: `${x} 0.007 0`, width: 0.06, height: 27 }, root);
-      ln.setAttribute('material', { color: C3D.steel, shader: 'flat' });
-    }
-    const mat = el('a-plane', { rotation: '-90 0 0', position: '0 0.008 13.2', width: 5, height: 2.6 }, root);
-    mat.setAttribute('material', { color: C3D.graphite, roughness: 1 });
-    // walls (front wall has a wide entrance)
-    const wall = { color: C3D.plaster, roughness: 0.95 };
-    box(root, `0 ${WH / 2} ${-H}`, 30, WH, 0.2, wall);
-    box(root, `${-H} ${WH / 2} 0`, 0.2, WH, 30, wall);
-    box(root, `${H} ${WH / 2} 0`, 0.2, WH, 30, wall);
-    box(root, `-9 ${WH / 2} ${H}`, 12, WH, 0.2, wall);
-    box(root, `9 ${WH / 2} ${H}`, 12, WH, 0.2, wall);
-    box(root, `0 ${WH - 1.25} ${H}`, 6, 2.5, 0.2, wall);
-    // ceiling trusses
-    for (const z of [-10, -3.5, 3, 9.5]) box(root, `0 ${WH - 0.35} ${z}`, 30, 0.14, 0.14, { color: C3D.steel, roughness: 0.4, metalness: 0.6 });
-    for (const x of [-7, 7]) box(root, `${x} ${WH - 0.35} 0`, 0.1, 0.1, 30, { color: C3D.steel, roughness: 0.4, metalness: 0.6 });
 
-    // back wall: banner with room name, notice board, QUESTIONS and IDEAS
-    box(root, `0 5.5 ${-H + 0.18}`, 13, 1.1, 0.12, { color: C3D.graphite, roughness: 0.6 });
-    box(root, `0 4.92 ${-H + 0.25}`, 13, 0.05, 0.02, { color: C3D.blueprint, shader: 'flat' });
+    // materials
+    const M = {
+      concrete: L.std({ map: L.tex(L.T.concrete(), 30 / 4, 30 / 4), roughness: 0.3, metalness: 0 }),
+      plaster: L.std({ map: L.tex(L.T.plaster(), 10, 2.4), roughness: 0.92, emissive: new THREE.Color('#eef0ef'), emissiveIntensity: 0.38 }),
+      plasterSm: L.std({ map: L.tex(L.T.plaster(), 2, 1), roughness: 0.92, emissive: new THREE.Color('#eef0ef'), emissiveIntensity: 0.38 }),
+      graphite: L.std({ color: C3D.graphite, roughness: 0.45, metalness: 0.1 }),
+      steel: L.std({ color: '#9aa2ab', roughness: 0.32, metalness: 0.85 }),
+      felt: L.std({ map: L.tex(L.T.felt(), 6, 2.4), roughness: 1, emissive: new THREE.Color('#dfe2e4'), emissiveIntensity: 0.3 }),
+      feltSm: L.std({ map: L.tex(L.T.felt(), 3.4, 2.1), roughness: 1, emissive: new THREE.Color('#dfe2e4'), emissiveIntensity: 0.3 }),
+      oak: L.std({ map: L.tex(L.T.oak(), 4.55 / 2.2, 2.55 / 2.2), roughness: 0.48 }),
+      boothWall: L.std({ map: L.tex(L.T.boothWall()), emissiveMap: L.tex(L.T.boothGlow()), emissive: new THREE.Color('#fff6e8'), emissiveIntensity: 0.62, roughness: 0.9 }),
+      side: L.std({ color: '#f1f2f1', roughness: 0.85, emissive: new THREE.Color('#eceeed'), emissiveIntensity: 0.3 }),
+      blue: new THREE.MeshBasicMaterial({ color: C3D.blueprint, toneMapped: false }),
+      led: new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }),
+      white: L.std({ color: '#f7f7f6', roughness: 0.22, metalness: 0 }),
+      mat: L.std({ color: '#2a2f37', roughness: 1 })
+    };
+
+    // floor
+    add(planeGeo, M.concrete, [0, 0.004, 0], [30, 30, 1], [-Math.PI / 2, 0, 0], false, true);
+    for (const x of [-3.2, 3.2]) add(planeGeo, L.std({ color: '#8f979f', roughness: 0.4, metalness: 0.7 }), [x, 0.007, 0], [0.05, 27, 1], [-Math.PI / 2, 0, 0], false, true);
+    add(planeGeo, M.mat, [0, 0.008, 13.2], [5, 2.6, 1], [-Math.PI / 2, 0, 0], false, true);
+
+    // walls (the front wall has a wide entrance) with a soft shadow line along their base
+    add(boxGeo, M.plaster, [0, WH / 2, -H], [30, WH, 0.2], null, false, true);
+    add(boxGeo, M.plaster, [-H, WH / 2, 0], [0.2, WH, 30], null, false, true);
+    add(boxGeo, M.plaster, [H, WH / 2, 0], [0.2, WH, 30], null, false, true);
+    add(boxGeo, M.plasterSm, [-9, WH / 2, H], [12, WH, 0.2], null, false, true);
+    add(boxGeo, M.plasterSm, [9, WH / 2, H], [12, WH, 0.2], null, false, true);
+    add(boxGeo, M.plasterSm, [0, WH - 1.25, H], [6, 2.5, 0.2], null, false, true);
+    add(boxGeo, M.steel, [0, WH - 2.5, H - 0.12], [6.1, 0.12, 0.08]);
+    const ao = L.T.aoStrip();
+    floorDecal(ao, 0, -H + 0.65, 30, 1.2, 0);
+    floorDecal(ao, -H + 0.65, 0, 30, 1.2, Math.PI / 2);
+    floorDecal(ao, H - 0.65, 0, 30, 1.2, -Math.PI / 2);
+    floorDecal(ao, -9, H - 0.65, 12, 1.2, Math.PI);
+    floorDecal(ao, 9, H - 0.65, 12, 1.2, Math.PI);
+
+    // ceiling with four skylights over the centre aisle, steel trusses and linear lights
+    const openings = [[-12, -8], [-5.5, -1.5], [1.5, 5.5], [8, 12]].map(([z0, z1]) => ({ x0: -3.5, x1: 3.5, z0, z1 }));
+    const ceilMat = L.std({ map: L.tex(L.T.plaster(), 8, 8), alphaMap: L.T.ceilingAlpha(openings, H), alphaTest: 0.5, roughness: 0.95, side: THREE.FrontSide, emissive: new THREE.Color('#d3d6d9'), emissiveIntensity: 0.75 });
+    add(planeGeo, ceilMat, [0, WH, 0], [30, 30, 1], [Math.PI / 2, 0, 0]);
+    for (const o of openings) { // skylight frames and mullions
+      const cz = (o.z0 + o.z1) / 2, dz = o.z1 - o.z0;
+      add(boxGeo, M.steel, [0, WH - 0.05, o.z0], [7.1, 0.1, 0.1]);
+      add(boxGeo, M.steel, [0, WH - 0.05, o.z1], [7.1, 0.1, 0.1]);
+      for (const x of [-3.5, -1.75, 0, 1.75, 3.5]) add(boxGeo, M.steel, [x, WH - 0.05, cz], [0.06, 0.08, dz]);
+    }
+    for (const z of [-10, -3.5, 3, 9.5]) add(boxGeo, M.steel, [0, WH - 0.4, z], [30, 0.14, 0.14]);
+    for (const x of [-7, 7]) add(boxGeo, M.steel, [x, WH - 0.4, 0], [0.1, 0.1, 30]);
+    for (const x of [-6.2, 6.2]) {
+      for (const z of [-8.5, -1.5, 5.5]) {
+        add(boxGeo, M.graphite, [x, 5.6, z], [0.12, 0.07, 5.2]);
+        add(boxGeo, M.led, [x, 5.56, z], [0.07, 0.012, 5.1]);
+        for (const dz of [-2.2, 2.2]) add(boxGeo, M.graphite, [x, 6.3, z + dz], [0.012, 1.3, 0.012]);
+      }
+    }
+
+    // back wall: banner with room name, notice board, Questions and Ideas
+    add(boxGeo, M.graphite, [0, 5.5, -H + 0.18], [13, 1.1, 0.12]);
+    add(boxGeo, M.blue, [0, 4.92, -H + 0.25], [13, 0.05, 0.02]);
     const title = el('a-entity', { id: 'roomTitle3d', position: `0 5.5 ${-H + 0.26}` }, root);
     title.setAttribute('text', { value: 'EXHIBITION HALL', align: 'center', color: '#ffffff', width: 11, wrapCount: 30 });
-    box(root, `0 2.4 ${-H + 0.13}`, 8.2, 3.2, 0.06, { color: C3D.graphite, roughness: 0.6 });
-    const nb = box(root, `0 2.4 ${-H + 0.17}`, 8, 3, 0.04, { color: C3D.felt, roughness: 1 }, 'clickable pinnable');
+    add(boxGeo, M.graphite, [0, 2.4, -H + 0.13], [8.2, 3.2, 0.06], null, true);
+    const nb = surface(root, `0 2.4 ${-H + 0.17}`, 8, 3, 0.04, M.felt, 'clickable pinnable');
     nb.id = 'noticeBoard';
     txt(root, `0 4.25 ${-H + 0.2}`, 'Notice board', 5, C3D.graphite, 24);
     for (const [x, name] of [[-8.6, 'Questions'], [8.6, 'Ideas']]) {
-      box(root, `${x} 2.1 ${-H + 0.13}`, 4.4, 2.8, 0.05, { color: C3D.graphite, roughness: 0.6 });
-      box(root, `${x} 2.1 ${-H + 0.17}`, 4.2, 2.6, 0.04, { color: C3D.felt, roughness: 1 }, 'clickable pinnable');
+      add(boxGeo, M.graphite, [x, 2.1, -H + 0.13], [4.4, 2.8, 0.05], null, true);
+      surface(root, `${x} 2.1 ${-H + 0.17}`, 4.2, 2.6, 0.04, M.feltSm, 'clickable pinnable');
       txt(root, `${x} 3.85 ${-H + 0.2}`, name, 3.6, C3D.graphite, 18);
     }
 
-    // booths
-    BOOTHS.forEach((b) => {
+    // booths: oak floor, lit back wall, side panels, sign and three track lights
+    const trackHeads = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.065, 0.16, 12), M.graphite, BOOTHS.length * 3);
+    const tmp = new THREE.Object3D();
+    BOOTHS.forEach((b, i) => {
       const g = el('a-entity', { position: `${b.x} 0 ${b.z}`, rotation: `0 ${b.ry} 0` }, root);
-      box(g, '0 1.45 0', 4.6, 2.9, 0.08, { color: C3D.panel, roughness: 1 }, 'clickable pinnable');
-      box(g, '0 3.17 0.04', 4.8, 0.46, 0.16, { color: C3D.graphite, roughness: 0.55 });
-      box(g, '0 2.92 0.12', 4.8, 0.035, 0.012, { color: C3D.blueprint, shader: 'flat' });
+      const gd = new THREE.Group(); // decoration in booth space
+      gd.position.set(b.x, 0, b.z); gd.rotation.y = THREE.MathUtils.degToRad(b.ry);
+      deco.add(gd);
+      const put = (geo, mat, pos, scale, rot, cast, receive) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(pos[0], pos[1], pos[2]); if (scale) m.scale.set(scale[0], scale[1], scale[2]); if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
+        m.castShadow = !!cast; m.receiveShadow = !!receive; gd.add(m); return m;
+      };
+      surface(g, '0 1.45 0', 4.6, 2.9, 0.08, M.boothWall, 'clickable pinnable', true);
+      put(boxGeo, M.graphite, [0, 3.17, 0.04], [4.8, 0.46, 0.16], null, true);
+      put(boxGeo, M.blue, [0, 2.92, 0.12], [4.8, 0.035, 0.012]);
       b.label = txt(g, '0 3.17 0.13', `BOOTH ${b.n}`, 4.2, '#ffffff', 22);
       b.labelText = `BOOTH ${b.n}`;
-      for (const sx of [-2.3, 2.3]) box(g, `${sx} 1.2 1.25`, 0.04, 2.4, 2.5, { color: '#eceeed', roughness: 1 });
-      const inlay = el('a-plane', { rotation: '-90 0 0', position: '0 0.01 1.3', width: 4.55, height: 2.55 }, g);
-      inlay.setAttribute('material', { color: C3D.inlay, roughness: 0.6 });
+      for (const sx of [-2.3, 2.3]) put(boxGeo, M.side, [sx, 1.2, 1.25], [0.04, 2.4, 2.5], null, true, true);
+      put(planeGeo, M.oak, [0, 0.01, 1.3], [4.55, 2.55, 1], [-Math.PI / 2, 0, 0], false, true);
+      const aoM = L.decal(ao, 0.9);
+      put(planeGeo, aoM, [0, 0.014, 0.35], [4.5, 0.6, 1], [-Math.PI / 2, 0, 0]);
+      [-1.5, 0, 1.5].forEach((tx, k) => {
+        tmp.position.set(tx, 2.86, 0.32); tmp.rotation.set(-0.5, 0, 0); tmp.updateMatrix();
+        const m4 = new THREE.Matrix4().multiplyMatrices(new THREE.Matrix4().compose(gd.position, gd.quaternion, new THREE.Vector3(1, 1, 1)), tmp.matrix);
+        trackHeads.setMatrixAt(i * 3 + k, m4);
+      });
     });
+    trackHeads.instanceMatrix.needsUpdate = true;
+    deco.add(trackHeads);
 
     // display pedestals for models (you can step onto them)
     PEDESTALS.forEach((pd) => {
-      const c = el('a-cylinder', { class: 'clickable floor', position: `${pd.x} ${pd.top / 2} ${pd.z}`, radius: 1.5, height: pd.top }, root);
-      c.setAttribute('material', { color: '#f5f6f5', roughness: 0.35 });
-      const ring = el('a-torus', { position: `${pd.x} ${pd.top} ${pd.z}`, rotation: '90 0 0', radius: 1.5, 'radius-tubular': 0.018 }, root);
-      ring.setAttribute('material', { color: C3D.blueprint, shader: 'flat' });
+      surface(root, `${pd.x} ${pd.top / 2} ${pd.z}`, 0, 0, 0, M.white, 'clickable floor', true, new THREE.CylinderGeometry(1.5, 1.5, pd.top, 72));
+      add(new THREE.TorusGeometry(1.5, 0.018, 8, 96), M.blue, [pd.x, pd.top, pd.z], null, [Math.PI / 2, 0, 0]);
+      floorDecal(L.T.contact(), pd.x, pd.z, 4.4, 4.4, 0, 0.85, 0.011);
     });
+    L.mergeStatic(deco);
   }
   // ---------------- shared objects: models & PDFs ----------------
   const PDF_W = 1.6;   // panel width in metres at scale 1
@@ -754,6 +832,7 @@
     rec.root.object3D.rotation.set(0, THREE.MathUtils.degToRad(d.ry || 0), 0);
     rec.inner.object3D.scale.setScalar(d.s || 1);
     for (const n of notes.values()) if (n.data.on === d.id) n.el.object3D.scale.setScalar(1 / (d.s || 1));
+    if (window.VSNLook) VSNLook.refreshShadows();
   }
 
   function updateItem(patch) {
@@ -775,8 +854,15 @@
     if (rec.doc) rec.doc.destroy().catch(() => {});
     if (rec.root.parentNode) rec.root.parentNode.removeChild(rec.root);
     items.delete(id);
+    if (window.VSNLook) VSNLook.refreshShadows();
     updateBoothLabels();
     refreshPanel('objects');
+  }
+
+  function castShadow(e, receive) {
+    if (!window.VSNLook) return;
+    const apply = () => { const m = e.getObject3D('mesh'); if (!m) return false; VSNLook.shadows(m, true, !!receive); return true; };
+    if (!apply()) e.addEventListener('object3dset', apply);
   }
 
   function refreshRaycasters() {
@@ -808,6 +894,7 @@
     mesh.position.set(-c.x, -box.min.y, -c.z);
     rec.size = box.getSize(new THREE.Vector3());
     rec.content.object3D.updateMatrixWorld(true);
+    if (window.VSNLook) VSNLook.shadows(mesh, true, true);
     refreshRaycasters();
 
     if (justUploaded.has(rec.data.id)) {
@@ -831,12 +918,17 @@
     const panel = el('a-plane', { class: 'clickable item-surface pdf-page', width: PDF_W, height: h, position: `0 ${PDF_BASE + h / 2} 0` }, rec.inner);
     panel.setAttribute('material', { shader: 'flat', color: '#ffffff', side: 'double' });
     rec.content = panel;
+    if (window.VSNLook) VSNLook.untoned(panel);
     panel.addEventListener('click', (e) => onSurfaceClick(e, it.id));
     const back = el('a-box', { class: 'pdf-back', width: PDF_W + 0.06, height: h + 0.06, depth: 0.03, position: `0 ${PDF_BASE + h / 2} -0.02` }, rec.inner);
-    back.setAttribute('material', { color: '#2b2f38', roughness: 0.8 });
-    const stand = el('a-box', { class: 'pdf-stand', width: 0.06, height: PDF_BASE, depth: 0.06, position: `0 ${PDF_BASE / 2} -0.05` }, rec.inner);
-    stand.setAttribute('material', { color: '#2b2f38' });
-    el('a-cylinder', { radius: 0.28, height: 0.02, position: '0 0.01 -0.05', color: '#2b2f38' }, rec.inner);
+    back.setAttribute('material', { color: '#262b33', roughness: 0.45, metalness: 0.1 });
+    castShadow(back);
+    const stand = el('a-box', { class: 'pdf-stand', width: 0.05, height: PDF_BASE, depth: 0.05, position: `0 ${PDF_BASE / 2} -0.05` }, rec.inner);
+    stand.setAttribute('material', { color: '#9aa2ab', roughness: 0.3, metalness: 0.85 });
+    castShadow(stand);
+    const foot = el('a-cylinder', { radius: 0.28, height: 0.02, position: '0 0.01 -0.05', 'segments-radial': 40 }, rec.inner);
+    foot.setAttribute('material', { color: '#262b33', roughness: 0.4, metalness: 0.2 });
+    castShadow(foot);
     const title = el('a-entity', { class: 'pdf-title', position: `0 ${PDF_BASE + h + 0.08} 0` }, rec.inner);
     title.setAttribute('text', { value: font3d(itemTitle(it)), align: 'center', color: '#1b1f27', width: 1.6, wrapCount: 36 });
     // page controls (work with mouse, touch, laser and gaze)
@@ -854,7 +946,8 @@
     const it = rec.data;
     const frame = (w, h, d, x, y) => {
       const b = el('a-box', { width: w, height: h, depth: d, position: `${x} ${y} 0` }, rec.inner);
-      b.setAttribute('material', { color: '#2b2f38', roughness: 0.6 });
+      b.setAttribute('material', { color: '#262b33', roughness: 0.45, metalness: 0.1 });
+      castShadow(b);
     };
     frame(0.12, 2.36, 0.14, -0.66, 1.18);
     frame(0.12, 2.36, 0.14, 0.66, 1.18);
@@ -972,6 +1065,7 @@
     back.setAttribute('position', `0 ${y} -0.02`);
     rec.inner.querySelector('.pdf-title').setAttribute('position', `0 ${PDF_BASE + h + 0.08} 0`);
     rec.size = new THREE.Vector3(PDF_W, PDF_BASE + h, 0.1);
+    if (window.VSNLook) VSNLook.refreshShadows();
   }
 
   let pdfjsPromise = null;
@@ -1428,6 +1522,16 @@
       row(me.name + ' (you)', me.color, `${DEVICE} · ${me.muted ? 'muted' : 'mic on'}`);
       for (const p of peers.values()) row(p.info.name, p.info.color, `${p.info.device} · ${p.info.muted ? 'muted' : 'mic on'}`);
       el('p', { class: 'fine' }, body).textContent = `${notes.size} sticky note${notes.size === 1 ? '' : 's'} and ${items.size} object${items.size === 1 ? '' : 's'} in this room.`;
+      if (window.VSNLook) {
+        const gfx = el('div', { class: 'gfx' }, body);
+        el('span', { class: 'label' }, gfx).textContent = 'Graphics';
+        const seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Graphics quality' }, gfx);
+        [['detailed', 'Detailed'], ['fast', 'Fast']].forEach(([q, label]) => {
+          const b = el('button', { type: 'button', 'aria-pressed': String(VSNLook.quality === q) }, seg);
+          b.textContent = label;
+          b.onclick = () => { VSNLook.setQuality(q); refreshPanel('people'); toast(q === 'fast' ? 'Fast graphics: shadows and reflections off for smoother motion on older devices.' : 'Detailed graphics: shadows and reflections on.'); };
+        });
+      }
       const actions = el('div', { class: 'actions' }, body);
       const a = el('a', { class: 'btn', href: `/api/rooms/${encodeURIComponent(ROOM)}/notes.csv`, download: '' }, actions);
       a.textContent = 'Download notes (CSV)';
@@ -1593,6 +1697,7 @@
     const charSize = Math.min(opts.charSize || 0.028, h * 0.55);
     const wrap = Math.max(String(label).length + 1, Math.round(tw / charSize), 2);
     b.setAttribute('text', { value: label, align: 'center', anchor: 'center', baseline: 'center', color: opts.textColor || '#ffffff', width: tw, wrapCount: wrap, zOffset: 0.002 });
+    if (window.VSNLook) VSNLook.untoned(b);
     b.addEventListener('mouseenter', () => b.setAttribute('material', 'color', opts.hover || '#2f6fc4'));
     b.addEventListener('mouseleave', () => b.setAttribute('material', 'color', base));
     b.addEventListener('click', (e) => { e.stopPropagation(); if (!fromDrag(e)) onClick(b); });
@@ -1869,10 +1974,12 @@
     tex.colorSpace = THREE.SRGBColorSpace;
     mesh.material.map = tex;
     mesh.material.color.set('#ffffff');
+    mesh.material.toneMapped = false;
     mesh.material.needsUpdate = true;
   }
 
   function wireScene() {
+    if (window.VSNLook) VSNLook.setup(scene);
     paintSky();
     buildVenue(); // build the hall first so its boards and pedestals get wired below
     document.querySelectorAll('.pinnable').forEach((n) => n.addEventListener('click', (e) => onSurfaceClick(e, null)));

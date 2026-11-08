@@ -12,11 +12,13 @@
   <link rel="stylesheet" href="/style.css">
   <script src="/vendor/aframe.min.js"></script>
   <script src="/components.js"></script>
+  <script src="/visuals.js"></script>
 </head>
 <body>
 
 <a-scene id="scene"
-  renderer="antialias: true; colorManagement: true"
+  renderer="antialias: true; colorManagement: true; toneMapping: neutral; exposure: 1; anisotropy: 4"
+  shadow="type: pcf; autoUpdate: false"
   xr-mode-ui="enabled: true"
   device-orientation-permission-ui="enabled: true"
   loading-screen="dotsColor: #2f6fc4; backgroundColor: #eef2f5"
@@ -25,9 +27,8 @@
   cursor="rayOrigin: mouse; fuse: false"
   raycaster="objects: .clickable; far: 80">
 
-  <a-entity light="type: hemisphere; color: #ffffff; groundColor: #c3cad1; intensity: 1.15"></a-entity>
-  <a-entity light="type: ambient; color: #ffffff; intensity: 0.62"></a-entity>
-  <a-entity light="type: directional; color: #ffffff; intensity: 0.55" position="-4 9 6"></a-entity>
+  <!-- Soft sky fill. The key light, its shadow and the reflections are set up in visuals.js -->
+  <a-entity light="type: hemisphere; color: #ffffff; groundColor: #cdc8bf; intensity: 0.5"></a-entity>
   <!-- light-blue sky; app.js turns it into a soft gradient toward the horizon -->
   <a-sky id="sky" color="#aad8f7" material="fog: false; shader: flat"></a-sky>
 

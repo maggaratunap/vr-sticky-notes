@@ -12,6 +12,8 @@ A multi-user VR space that runs in the browser. Create as many rooms as you need
 ## Features
 
 - **Exhibition hall**: every room is a 30 x 30 m hall with eight booths along the side walls (each with a pin-able back wall and a sign), two round display pedestals down the middle, and a notice board with QUESTIONS and IDEAS boards on the back wall under a banner showing the room name. You arrive at the entrance. Step onto a pedestal by tapping or aiming at it.
+- **Realistic lighting**: reflections from a generated studio environment, soft sun shadows (re-drawn only when something moves, so it stays smooth on headsets), polished concrete with slab joints, plaster walls, oak booth floors, felt pin boards, skylights, linear pendant lights and track-lit booth walls. Uploaded models get reflections and cast shadows too. All textures are generated in the browser, so nothing extra downloads.
+- **Graphics setting**: tap the room name at the top left and choose **Detailed** (default) or **Fast**. Fast turns off shadows and reflections for older phones; the choice is remembered on that device.
 - **Rooms**: the start screen lists rooms with who is in them and how many notes and files they have. Anyone can create a room (name, description, optionally *unlisted* so only people with the link find it). Each room has its own link: `https://your-site/?room=tcm-366-clash-review`.
 - **Uploads for everyone**: anyone in a room can add 3D models (`.glb`, single-file `.gltf`, `.obj`) and PDFs. Models go onto a free display pedestal (then booths) and PDFs into a free booth, sized to fit, and the booth sign changes to the file's name. When everything is full they appear in front of you. Everyone sees them right away.
   - Models are automatically centred and set on the floor (Revit exports often sit far away at survey coordinates). Very large or very small models are resized to fit the room; one tap on **1:1** puts them back to real scale so you can walk through.
@@ -91,6 +93,7 @@ server.js            HTTP + WebSocket server: rooms, uploads, notes, poses, voic
 public/index.html    Scene and interface
 public/app.js        Client: rooms, networking, notes, models, PDFs, avatars, voice, VR keyboard
 public/components.js A-Frame components: movement, avatar smoothing, name tags
+public/visuals.js    Lighting, reflections, shadows and generated materials
 public/style.css     Interface styles
 render.yaml          One-click deploy on Render
 ```
