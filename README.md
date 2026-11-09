@@ -11,16 +11,18 @@ A multi-user VR space that runs in the browser. Create as many rooms as you need
 
 ## Features
 
-- **Exhibition hall**: every room is a 30 x 30 m hall with eight booths along the side walls (each with a pin-able back wall and a sign), two round display pedestals down the middle, and a notice board with QUESTIONS and IDEAS boards on the back wall under a banner showing the room name. You arrive at the entrance. Step onto a pedestal by tapping or aiming at it.
+- **Exhibition hall**: every room is a 48 x 48 m hall with **15 booths**: 5 along the left wall (1-5), 5 along the back wall (6-10) and 5 along the right wall (11-15). Each booth has a pin-able back wall, a sign with the booth number and its main exhibit, two PDF stands, a model plinth and a **+ Add** sign while it still has room. A free-standing notice wall in the middle shows the room name and the Notice board, with Questions and Ideas boards on its back. You arrive at the entrance.
 - **Realistic lighting**: reflections from a generated studio environment, soft sun shadows (re-drawn only when something moves, so it stays smooth on headsets), polished concrete with slab joints, plaster walls, oak booth floors, felt pin boards, skylights, linear pendant lights and track-lit booth walls. Uploaded models get reflections and cast shadows too. All textures are generated in the browser, so nothing extra downloads.
 - **Graphics setting**: tap the room name at the top left and choose **Detailed** (default) or **Fast**. Fast turns off shadows and reflections for older phones; the choice is remembered on that device.
 - **Rooms**: the start screen lists rooms with who is in them and how many notes and files they have. Anyone can create a room (name, description, optionally *unlisted* so only people with the link find it). Each room has its own link: `https://your-site/?room=tcm-366-clash-review`.
-- **Uploads for everyone**: anyone in a room can add 3D models (`.glb`, single-file `.gltf`, `.obj`) and PDFs. Models go onto a free display pedestal (then booths) and PDFs into a free booth, sized to fit, and the booth sign changes to the file's name. When everything is full they appear in front of you. Everyone sees them right away.
-  - Models are automatically centred and set on the floor (Revit exports often sit far away at survey coordinates). Very large or very small models are resized to fit the room; one tap on **1:1** puts them back to real scale so you can walk through.
+- **Uploads for everyone**: anyone in a room can add 3D models (`.glb`, single-file `.gltf`, `.obj`) and PDFs. **Each booth holds 1 model and 2 PDFs**; the server enforces this. Choose a booth in the upload sheet (or tap a booth's **+ Add** sign); the file goes into the right slot, sized to fit. Everyone sees it right away.
+  - Models are automatically centred and set on their plinth (Revit exports often sit far away at survey coordinates) and scaled to fit the booth; **Real size (1:1)** in the adjust panel restores true scale.
   - PDFs appear as a standing panel with **Prev / Next** buttons that work with mouse, touch, laser and gaze. The page is shared, so everyone sees the same sheet.
-  - The **Objects** panel lets anyone go to, bring over, put on display, turn, or resize an object, and flip PDF pages. Only the person who uploaded it (or the admin) can delete it.
+  - **Click (or point at) a model or PDF** to open its menu: **Add sticky note here** (exactly where you clicked), **Move, rotate or resize** (size slider, 1:1, fit booth, rotation, nudge left/right/away/closer/up/down, back to its booth spot, bring in front of me; everyone sees changes live), **Replace** with a new file (keeps its place and sticky notes) and **Remove**. Anyone can adjust; only the uploader, the room creator or the admin can replace or remove. Works in VR too, with floating panels (replacing a file needs a phone or computer).
+  - The **Objects** panel lists everything by booth with Go to, Adjust, page turning, Replace and Remove.
 - **Fly mode**: press **Fly** to float freely in the direction you look, over and through models. Computer: WASD, Space up, Shift down, F toggles. Phone: tap the sky to fly toward it, hold the arrow buttons to rise or sink. Quest: left stick flies where you look, right stick up/down rises and sinks, B or Y toggles. Cardboard: aim at the sky and press the button. Tap or aim at the floor to land.
 - **Room shortcuts**: from inside a room, open **Objects > Add room shortcut** to create a new room (or pick an existing one). A doorway appears in front of you, and the new room gets a doorway back. Walking through switches rooms without reloading, so headset users stay in VR. Deleting a room also removes doorways that point to it.
+- **Avatar customization**: shirt color, skin tone, round or square head, headwear (hard hat in yellow, white or orange, cap, beanie, headphones), glasses or safety glasses, and a hi-vis vest. Set it in the lobby (**Customize**) or in a room (tap the room name, then **Customize avatar**); everyone sees changes right away.
 - **Sticky notes**: six colors, up to 280 characters, +1 votes, edit and delete your own. Notes placed on a model move and scale with it. Notes placed on a PDF belong to that page and only show on that page.
 - **Voice chat**: peer-to-peer audio (WebRTC). Voices fade with distance and a green ring shows who is talking.
 - **Export**: the room panel has **Download notes (CSV)** with text, author, votes, timestamps, what the note is on (room, model, or PDF and page) and position.
@@ -64,7 +66,7 @@ On the free plan the server goes to sleep when nobody has visited for a while (t
 | `ICE_SERVERS` | Google STUN | JSON list of STUN/TURN servers for voice (see below) |
 | `MAX_MODEL_MB` / `MAX_PDF_MB` | `80` / `40` | Upload size limits |
 | `MAX_ROOM_MB` | `500` | Total upload storage per room |
-| `MAX_ITEMS_PER_ROOM` | `30` | Models + PDFs per room |
+| `MAX_ITEMS_PER_ROOM` | `60` | Models, PDFs and doorways per room (15 booths x 3 files = 45) |
 | `MAX_ROOMS` | `200` | Number of rooms |
 | `MAX_USERS_PER_ROOM` | `16` | People in one room at once |
 | `MAX_NOTES_PER_ROOM` | `500` | Notes per room |

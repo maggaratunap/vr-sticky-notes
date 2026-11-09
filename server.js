@@ -19,7 +19,9 @@ const DATA_DIR = env.DATA_DIR || path.join(__dirname, 'data');
 const ADMIN_KEY = env.ADMIN_KEY || '';
 const MAX_NOTES_PER_ROOM = Number(env.MAX_NOTES_PER_ROOM) || 500;
 const MAX_USERS_PER_ROOM = Number(env.MAX_USERS_PER_ROOM) || 16;
-const MAX_ITEMS_PER_ROOM = Number(env.MAX_ITEMS_PER_ROOM) || 30;
+const MAX_ITEMS_PER_ROOM = Number(env.MAX_ITEMS_PER_ROOM) || 60;
+const BOOTH_COUNT = 15; // each booth holds 1 model and 2 PDFs
+const SLOTS = { model: ['model'], pdf: ['pdf1', 'pdf2'] };
 const MAX_ROOMS = Number(env.MAX_ROOMS) || 200;
 const MB = 1024 * 1024;
 const MAX_MODEL_BYTES = (Number(env.MAX_MODEL_MB) || 80) * MB;
@@ -35,6 +37,26 @@ if (env.ICE_SERVERS) {
 const NOTE_COLORS = ['#ffe066', '#ff9ebb', '#a8e06c', '#8fd3fe', '#ffb870', '#d7b8ff'];
 const USER_COLORS = ['#e4572e', '#2e86ab', '#3bb273', '#f3a712', '#8e44ad', '#e84393', '#16a085', '#d35400'];
 const FORMATS = { '.glb': 'model', '.gltf': 'model', '.obj': 'model', '.pdf': 'pdf' };
+// Avatar choices (everything a viewer can pick; anything else is ignored)
+const AVATAR = {
+  skin: ['#f6d7b8', '#e8b98f', '#c98f62', '#a46a3f', '#7a4a2a', '#4f2f1c'],
+  head: ['round', 'square'],
+  hat: ['none', 'hardhat-yellow', 'hardhat-white', 'hardhat-orange', 'cap', 'beanie', 'headphones'],
+  eyes: ['none', 'glasses', 'safety'],
+  vest: [true, false]
+};
+function cleanAvatar(a, fallbackShirt) {
+  a = a && typeof a === 'object' ? a : {};
+  const pick = (v, list, d) => (list.includes(v) ? v : d);
+  return {
+    shirt: pick(a.shirt, USER_COLORS, fallbackShirt),
+    skin: pick(a.skin, AVATAR.skin, AVATAR.skin[1]),
+    head: pick(a.head, AVATAR.head, 'round'),
+    hat: pick(a.hat, AVATAR.hat, 'none'),
+    eyes: pick(a.eyes, AVATAR.eyes, 'none'),
+    vest: a.vest === true
+  };
+}
 const ROOMS_DIR = path.join(DATA_DIR, 'rooms');
 const REGISTRY_FILE = path.join(DATA_DIR, 'rooms.json');
 
@@ -112,6 +134,18 @@ function scheduleSave(room) {
   }, 400);
 }
 
+// The uploader, the person who created the room, and the admin can replace or remove an object.
+function canManage(slug, it, key, admin) {
+  if (admin) return true;
+  if (it.authorKey && key && it.authorKey === key) return true;
+  const reg = registry.get(slug);
+  return !!(reg && reg.creatorKey && key && reg.creatorKey === key);
+}
+function slotTaken(room, booth, slot, exceptId) {
+  for (const it of room.items.values()) if (it.id !== exceptId && it.booth === booth && it.slot === slot) return true;
+  return false;
+}
+
 function roomBytes(room) {
   let b = 0;
   for (const it of room.items.values()) b += it.size || 0;
@@ -131,7 +165,7 @@ function broadcast(room, msg, exceptId) {
 }
 function publicPeer(ws) {
   const u = ws.user;
-  return { id: u.id, name: u.name, color: u.color, device: u.device, muted: u.muted, p: u.p, q: u.q };
+  return { id: u.id, name: u.name, color: u.avatar.shirt, avatar: u.avatar, device: u.device, muted: u.muted, p: u.p, q: u.q };
 }
 function noteFor(key, admin, n) {
   const { authorKey, votes, ...rest } = n;
@@ -255,7 +289,32 @@ async function handleUpload(req, res, slug, url) {
   const limit = kind === 'pdf' ? MAX_PDF_BYTES : MAX_MODEL_BYTES;
   const declared = Number(req.headers['content-length'] || 0);
   if (declared > limit) return json(res, 413, { error: `File is too large. Limit is ${Math.round(limit / MB)} MB.` });
-  if (room.items.size >= MAX_ITEMS_PER_ROOM) return json(res, 409, { error: 'This room has reached its object limit.' });
+
+  // Replacing an existing object keeps its booth, place and sticky notes.
+  const replaceId = url.searchParams.get('replace');
+  let target = null;
+  let booth = null, slot = null;
+  if (replaceId) {
+    target = room.items.get(replaceId);
+    if (!target || target.kind === 'portal') return json(res, 404, { error: 'That object no longer exists.' });
+    if (!canManage(slug, target, key, isAdmin(req.headers['x-admin-key']))) return json(res, 403, { error: 'Only the person who uploaded it, the room creator, or the admin can replace it.' });
+    if (target.kind !== kind) return json(res, 415, { error: target.kind === 'pdf' ? 'Replace a PDF with another PDF.' : 'Replace a model with another model (.glb, .gltf or .obj).' });
+  } else {
+    if (room.items.size >= MAX_ITEMS_PER_ROOM) return json(res, 409, { error: 'This room has reached its object limit.' });
+    // Every upload goes into a booth slot: 1 model and 2 PDFs per booth.
+    const b = Math.floor(Number(url.searchParams.get('booth')));
+    const wanted = url.searchParams.get('slot');
+    const order = b >= 1 && b <= BOOTH_COUNT ? [b] : Array.from({ length: BOOTH_COUNT }, (_, i) => i + 1);
+    for (const bb of order) {
+      const options = SLOTS[kind].filter((sl) => !wanted || sl === wanted);
+      const free = options.find((sl) => !slotTaken(room, bb, sl));
+      if (free) { booth = bb; slot = free; break; }
+    }
+    if (!booth) {
+      const what = kind === 'pdf' ? 'two PDFs' : 'a model';
+      return json(res, 409, { error: order.length === 1 ? `Booth ${order[0]} already has ${what}. Replace or remove one first, or pick another booth.` : `Every booth already has ${what}. Replace or remove one first.` });
+    }
+  }
   if (roomBytes(room) + declared > MAX_ROOM_BYTES) return json(res, 413, { error: 'This room is out of storage space. Delete an object first.' });
 
   const id = newId();
@@ -287,11 +346,20 @@ async function handleUpload(req, res, slug, url) {
       fsp.unlink(tmp).catch(() => {});
       return json(res, 422, { error: e.message });
     }
-    const p = vec((url.searchParams.get('p') || '').split(',').map(Number), 3, 50) || [0, 0, 0];
+    const cleanName = name.replace(/\.[^.]+$/, '').slice(0, 60);
+    if (target) {
+      const oldFile = target.file;
+      Object.assign(target, { fmt: ext.slice(1), name: cleanName, file: fileName, size, s: 1, page: 1, updated: Date.now(), updatedBy: author });
+      if (oldFile && oldFile !== fileName) fsp.unlink(path.join(filesDir(slug), oldFile)).catch(() => {});
+      scheduleSave(room);
+      sendItemToAll(room, target, 'item-replace');
+      return json(res, 200, { item: itemFor(key, slug, target) });
+    }
+    const p = vec((url.searchParams.get('p') || '').split(',').map(Number), 3, 80) || [0, 0, 0];
     const ry = num(Number(url.searchParams.get('ry')), 360) || 0;
     const s0 = num(Number(url.searchParams.get('s')), 20);
     const item = {
-      id, kind, fmt: ext.slice(1), name: name.replace(/\.[^.]+$/, '').slice(0, 60), file: fileName, size,
+      id, kind, fmt: ext.slice(1), name: cleanName, file: fileName, size, booth, slot,
       p, ry, s: s0 && s0 >= 0.05 ? s0 : 1, page: 1, author, authorKey: key, ts: Date.now()
     };
     room.items.set(id, item);
@@ -328,7 +396,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/config') {
       return json(res, 200, {
         iceServers: ICE_SERVERS, noteColors: NOTE_COLORS, userColors: USER_COLORS, maxText: MAX_TEXT,
-        maxModelMB: MAX_MODEL_BYTES / MB, maxPdfMB: MAX_PDF_BYTES / MB
+        maxModelMB: MAX_MODEL_BYTES / MB, maxPdfMB: MAX_PDF_BYTES / MB, booths: BOOTH_COUNT, avatar: AVATAR
       });
     }
 
@@ -375,10 +443,10 @@ const server = http.createServer(async (req, res) => {
       if (sub === '/upload' && m === 'POST') return handleUpload(req, res, slug, url);
       if (sub === '/notes.csv' && m === 'GET') {
         const room = getRoom(slug);
-        const rows = [['id', 'text', 'author', 'color', 'votes', 'placed_on', 'pdf_page', 'created_utc', 'updated_utc', 'x', 'y', 'z']];
+        const rows = [['id', 'text', 'author', 'color', 'votes', 'booth', 'placed_on', 'pdf_page', 'created_utc', 'updated_utc', 'x', 'y', 'z']];
         for (const n of room.notes.values()) {
           const it = n.on ? room.items.get(n.on) : null;
-          rows.push([n.id, n.text, n.author, n.color, n.votes.length, it ? it.name : 'room', n.pg || '',
+          rows.push([n.id, n.text, n.author, n.color, n.votes.length, it && it.booth ? it.booth : '', it ? it.name : 'room', n.pg || '',
             new Date(n.ts).toISOString(), n.updated ? new Date(n.updated).toISOString() : '', n.p[0], n.p[1], n.p[2]]);
         }
         res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="notes-${slug}.csv"` });
@@ -439,7 +507,7 @@ wss.on('connection', (ws, req) => {
       ws.user = {
         id, key,
         name: cleanText(m.name, 24) || 'Guest',
-        color: pickColor(m.color, USER_COLORS, USER_COLORS[room.clients.size % USER_COLORS.length]),
+        avatar: cleanAvatar(m.avatar, pickColor(m.color, USER_COLORS, USER_COLORS[room.clients.size % USER_COLORS.length])),
         device: cleanText(m.device, 12) || 'desktop',
         muted: m.muted !== false,
         isAdmin: isAdmin(m.admin),
@@ -470,7 +538,7 @@ wss.on('connection', (ws, req) => {
       case 'profile': {
         if (typeof m.muted === 'boolean') u.muted = m.muted;
         if (m.name != null) u.name = cleanText(m.name, 24) || u.name;
-        if (m.color != null) u.color = pickColor(m.color, USER_COLORS, u.color);
+        if (m.avatar != null) u.avatar = cleanAvatar(m.avatar, u.avatar.shirt);
         broadcast(room, { type: 'peer-update', peer: publicPeer(ws) }, u.id);
         break;
       }
@@ -528,7 +596,7 @@ wss.on('connection', (ws, req) => {
       case 'item-update': {
         const it = room.items.get(m.id);
         if (!it) return;
-        const pp = vec(m.p, 3, 50); if (pp) it.p = pp;
+        const pp = vec(m.p, 3, 80); if (pp) it.p = pp;
         const ry = num(m.ry, 100000); if (ry !== null) it.ry = ((ry % 360) + 360) % 360;
         const s = num(m.s, 1000); if (s !== null && s >= 0.0005) it.s = Math.round(s * 100000) / 100000;
         const pg = num(m.page, 10000); if (pg !== null && pg >= 1) it.page = Math.floor(pg);
@@ -550,7 +618,7 @@ wss.on('connection', (ws, req) => {
       }
       case 'item-delete': {
         const it = room.items.get(m.id);
-        if (!it || (it.authorKey !== u.key && !u.isAdmin)) return;
+        if (!it || !canManage(slug, it, u.key, u.isAdmin)) return send(ws, { type: 'error', message: 'Only the person who uploaded it, the room creator, or the admin can remove it.' });
         room.items.delete(it.id);
         for (const [nid, n] of room.notes) if (n.on === it.id) room.notes.delete(nid);
         if (it.file) fsp.unlink(path.join(filesDir(slug), it.file)).catch(() => {});

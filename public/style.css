@@ -265,3 +265,72 @@ details.fine li { margin-bottom: 6px; }
 .seg button { border: 0; background: none; min-height: 34px; padding: 0 14px; border-radius: 8px; font-weight: 600; font-size: 0.88rem; color: var(--graphite-2); }
 .seg button[aria-pressed="true"] { background: #fff; color: var(--graphite); box-shadow: 0 1px 3px rgba(23, 33, 52, 0.18); }
 a.btn { color: var(--graphite); text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+
+select { width: 100%; font: inherit; font-size: 16px; color: var(--graphite); background: rgba(255, 255, 255, 0.85); border: 1px solid var(--hairline); border-radius: var(--r-sm); padding: 11px 12px; outline: none; appearance: auto; }
+select:focus { border-color: var(--blueprint); box-shadow: 0 0 0 3px var(--blueprint-wash); }
+
+/* Sheets that leave the 3D view usable behind them (object menu, adjust) */
+.sheet-wrap.clear { background: transparent; pointer-events: none; }
+.sheet-wrap.clear .sheet { pointer-events: auto; }
+@media (min-width: 640px) { .sheet-wrap.clear { align-items: flex-end; justify-content: flex-end; padding: 0 16px calc(16px + var(--safe-b)); } .sheet-wrap.clear .sheet { max-width: 400px; max-height: calc(100vh - 90px); } }
+/* the VR button would sit on top of open panels */
+body.sheet-open .a-enter-vr { display: none !important; }
+.sheet-head .titles { display: grid; gap: 2px; min-width: 0; }
+.sheet-head .titles b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.menu-list { display: grid; gap: 6px; }
+.menu-btn { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 11px 12px; border-radius: var(--r-md); border: 1px solid var(--hairline); background: rgba(255, 255, 255, 0.82); }
+.menu-btn .ico { color: var(--blueprint-ink); }
+.menu-btn span { display: grid; gap: 1px; }
+.menu-btn b { font-weight: 650; }
+.menu-btn small { font-size: 0.8rem; color: var(--steel); }
+.menu-btn.danger b, .menu-btn.danger .ico { color: var(--danger); }
+.menu-btn:disabled { opacity: 0.45; cursor: default; }
+#menuNote { background: var(--blueprint); border-color: var(--blueprint); color: #fff; }
+#menuNote .ico, #menuNote small { color: rgba(255, 255, 255, 0.85); }
+
+.adjust .adj-row { display: flex; justify-content: space-between; align-items: baseline; margin: 10px 0 6px; }
+.adjust .adj-row .label { margin: 0; }
+.adjust .val { font-size: 0.85rem; font-weight: 600; color: var(--graphite); font-variant-numeric: tabular-nums; }
+.adj-ctl { display: flex; align-items: center; gap: 10px; }
+.adj-ctl input[type=range] { flex: 1; padding: 0; border: 0; background: none; box-shadow: none; accent-color: var(--blueprint); height: 34px; }
+.step { min-width: 42px; height: 40px; border-radius: 11px; border: 1px solid var(--hairline); background: rgba(255, 255, 255, 0.85); font-size: 1.1rem; font-weight: 600; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+.step.held { background: var(--blueprint); color: #fff; border-color: var(--blueprint); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chips button { min-height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid var(--hairline); background: rgba(255, 255, 255, 0.82); font-weight: 600; font-size: 0.84rem; }
+.dpad { display: flex; align-items: center; gap: 8px; }
+.dpad-mid, .dpad-ud { display: grid; gap: 6px; }
+.dpad-ud { margin-left: auto; }
+.dpad-ud .step { font-size: 0.85rem; padding: 0 12px; }
+@media (hover: hover) {
+  .menu-btn:hover { background: #fff; }
+  #menuNote:hover { background: var(--blueprint-ink); }
+  .step:hover, .chips button:hover { border-color: rgba(47, 111, 196, 0.45); color: var(--blueprint-ink); }
+}
+
+/* Avatar */
+.avatar-row { display: flex; align-items: center; gap: 12px; }
+.avatar-mini { width: 46px; height: 56px; display: block; }
+.avatar-mini svg, .avatar-preview svg { width: 100%; height: 100%; display: block; }
+.btn.small { min-height: 38px; padding: 0 14px; font-size: 0.9rem; }
+.sheet-wrap.top { z-index: 30; }
+.avatar-grid { display: grid; grid-template-columns: 132px 1fr; gap: 16px; align-items: start; }
+.avatar-preview { width: 132px; height: 168px; border-radius: var(--r-md); background: linear-gradient(180deg, #dbe9f6, #f3f6f8); border: 1px solid var(--hairline); }
+@media (max-width: 400px) { .avatar-grid { grid-template-columns: 104px 1fr; } .avatar-preview { width: 104px; height: 136px; } }
+.chips.pick button[aria-pressed="true"] { background: var(--graphite); color: #fff; border-color: var(--graphite); }
+.switch { margin: 4px 0 6px; font-weight: 600; color: var(--graphite); }
+
+/* Phones: a compact adjust panel so the object stays visible above it */
+@media (max-width: 639px) {
+  .adjust { max-height: 50vh; padding-top: 12px; }
+  .adjust .sheet-head { margin-bottom: 6px; }
+  .adjust .sheet-head .fine, .adjust .adj-row .fine { display: none; }
+  .adjust .adj-row { margin: 6px 0 4px; }
+  .adjust .step { height: 36px; min-width: 38px; }
+  .adjust .chips { margin-top: 6px; }
+  .adjust .chips button { min-height: 30px; font-size: 0.8rem; }
+  .adjust .dpad-mid { display: flex; gap: 6px; }
+  .adjust .dpad-ud { display: flex; gap: 6px; }
+  .adjust .actions { margin-top: 8px; }
+  .adjust .actions .btn { min-height: 42px; }
+}

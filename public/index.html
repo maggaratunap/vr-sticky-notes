@@ -22,7 +22,7 @@
   xr-mode-ui="enabled: true"
   device-orientation-permission-ui="enabled: true"
   loading-screen="dotsColor: #2f6fc4; backgroundColor: #eef2f5"
-  fog="type: linear; color: #e3eef6; near: 34; far: 95"
+  fog="type: linear; color: #e3eef6; near: 46; far: 130"
   gltf-model="dracoDecoderPath: https://www.gstatic.com/draco/versioned/decoders/1.5.7/"
   cursor="rayOrigin: mouse; fuse: false"
   raycaster="objects: .clickable; far: 80">
@@ -75,7 +75,9 @@
       <label class="field"><span class="label">Your name</span>
         <input id="nameInput" maxlength="24" autocomplete="nickname" placeholder="e.g. Lucky">
       </label>
-      <div class="field"><span class="label">Avatar color</span><div id="userColors" class="swatches"></div></div>
+      <div class="field"><span class="label">Your avatar</span>
+        <div class="avatar-row"><span id="lobbyAvatar" class="avatar-mini" aria-hidden="true"></span><button type="button" id="customizeBtn" class="btn small">Customize</button></div>
+      </div>
     </div>
 
     <div class="field">
@@ -97,7 +99,7 @@
     <details class="fine">
       <summary>How it works on each device</summary>
       <ul>
-        <li><b>Computer:</b> drag to look, WASD to move, click a booth wall, a board, a model, or a PDF to leave a note.</li>
+        <li><b>Computer:</b> drag to look, WASD to move. Click a booth wall or board to leave a note. Click a model or PDF for its menu: add a note there, adjust, replace or remove.</li>
         <li><b>Phone:</b> drag or turn your phone to look, tap the floor to walk, tap a surface to leave a note.</li>
         <li><b>Quest / headset:</b> press VR, point and pull the trigger. Left stick walks, right stick turns, A or X toggles your mic.</li>
         <li><b>Cardboard:</b> press VR, aim the ring with your head, and press the Cardboard button to walk to the floor spot, open a note, or press a button.</li>
@@ -118,6 +120,9 @@
   <symbol id="i-invite" viewBox="0 0 24 24"><circle cx="9.5" cy="8" r="3.5"/><path d="M3 20c.5-3.5 3-5.5 6.5-5.5S15.5 16.5 16 20M18.5 8v6M15.5 11h6"/></symbol>
   <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.6M12 17h.01"/></symbol>
   <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19.5c.4-3.2 2.6-5 5.5-5s5.1 1.8 5.5 5M16 5.5a3 3 0 0 1 0 6M17.5 14.6c1.8.6 3 2.3 3.3 4.9"/></symbol>
+  <symbol id="i-move" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3 9.5 5.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5"/></symbol>
+  <symbol id="i-avatar" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20.5c.6-4 3.6-6.5 7.5-6.5s6.9 2.5 7.5 6.5"/></symbol>
   <symbol id="i-up" viewBox="0 0 24 24"><path d="M6 14.5 12 8.5l6 6"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
 </svg>
@@ -173,7 +178,10 @@
 <!-- Upload -->
 <div id="upload" class="overlay sheet-wrap" hidden>
   <form class="sheet glass" id="uploadForm">
-    <div class="sheet-head"><b>Add a model or document</b><button type="button" class="x" data-close>&times;</button></div>
+    <div class="sheet-head"><b id="uploadTitle">Add a model or PDF</b><button type="button" class="x" data-close>&times;</button></div>
+    <label class="field" id="boothField"><span class="label">Booth</span>
+      <select id="uploadBooth"></select>
+    </label>
     <label class="drop" id="dropZone">
       <input id="fileInput" type="file" accept=".glb,.gltf,.obj,.pdf,model/gltf-binary,application/pdf">
       <span id="dropLabel"><b>Choose a file</b><br><span class="fine">.glb, .gltf or .obj models, or a .pdf</span></span>
@@ -191,6 +199,60 @@
       </ul>
     </details>
   </form>
+</div>
+
+<!-- Avatar editor -->
+<div id="avatarSheet" class="overlay sheet-wrap top" hidden>
+  <div class="sheet glass avatar-sheet">
+    <div class="sheet-head"><b>Your avatar</b><button type="button" class="x" data-close aria-label="Close">&times;</button></div>
+    <div class="avatar-grid">
+      <div id="avatarPreview" class="avatar-preview" aria-label="Avatar preview"></div>
+      <div class="avatar-opts">
+        <div class="field"><span class="label">Shirt</span><div id="avShirt" class="swatches"></div></div>
+        <div class="field"><span class="label">Skin tone</span><div id="avSkin" class="swatches"></div></div>
+        <div class="field"><span class="label">Head</span><div id="avHead" class="seg"></div></div>
+      </div>
+    </div>
+    <div class="field"><span class="label">Headwear</span><div id="avHat" class="chips pick"></div></div>
+    <div class="field"><span class="label">Eyewear</span><div id="avEyes" class="chips pick"></div></div>
+    <label class="check switch"><input type="checkbox" id="avVest"> Hi-vis safety vest</label>
+    <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button type="button" id="avSave" class="btn primary">Save avatar</button></div>
+  </div>
+</div>
+
+<!-- Object menu: opens when you click a model or PDF -->
+<div id="itemMenu" class="overlay sheet-wrap clear" hidden>
+  <div class="sheet glass">
+    <div class="sheet-head"><div class="titles"><b id="menuTitle"></b><span id="menuMeta" class="fine"></span></div><button type="button" class="x" data-close aria-label="Close">&times;</button></div>
+    <div class="menu-list">
+      <button type="button" id="menuNote" class="menu-btn"><svg class="ico"><use href="#i-note"/></svg><span><b>Add sticky note here</b><small>Pins a note where you clicked</small></span></button>
+      <button type="button" id="menuAdjust" class="menu-btn"><svg class="ico"><use href="#i-move"/></svg><span><b>Move, rotate or resize</b><small>Position, rotation and scale</small></span></button>
+      <button type="button" id="menuReplace" class="menu-btn"><svg class="ico"><use href="#i-upload"/></svg><span><b id="menuReplaceLbl">Replace with a new file</b><small>Keeps its place and sticky notes</small></span></button>
+      <button type="button" id="menuRemove" class="menu-btn danger"><svg class="ico"><use href="#i-trash"/></svg><span><b id="menuRemoveLbl">Remove</b><small>Deletes it and its sticky notes for everyone</small></span></button>
+    </div>
+    <p id="menuHint" class="fine"></p>
+  </div>
+</div>
+
+<!-- Adjust: position, rotation, scale -->
+<div id="adjust" class="overlay sheet-wrap clear" hidden>
+  <div class="sheet glass adjust">
+    <div class="sheet-head"><div class="titles"><b id="adjustTitle">Adjust</b><span class="fine">Everyone sees changes as you make them</span></div><button type="button" class="x" data-close aria-label="Close">&times;</button></div>
+    <div class="adj-row"><span class="label">Size</span><span id="adjScaleVal" class="val"></span></div>
+    <div class="adj-ctl"><button type="button" class="step" data-act="s-" aria-label="Smaller">&minus;</button><input type="range" id="adjScale" step="0.005" aria-label="Size"><button type="button" class="step" data-act="s+" aria-label="Bigger">+</button></div>
+    <div class="chips" id="adjScaleChips"><button type="button" data-act="s1">Real size (1:1)</button><button type="button" data-act="sfit">Fit the booth</button></div>
+    <div class="adj-row"><span class="label">Rotation</span><span id="adjRotVal" class="val"></span></div>
+    <div class="adj-ctl"><button type="button" class="step" data-act="r-" aria-label="Turn left 15 degrees">&#8634;</button><input type="range" id="adjRot" min="0" max="359" step="1" aria-label="Rotation"><button type="button" class="step" data-act="r+" aria-label="Turn right 15 degrees">&#8635;</button></div>
+    <div class="adj-row"><span class="label">Position</span><span class="fine">Moves relative to where you are looking</span></div>
+    <div class="dpad">
+      <button type="button" class="step" data-act="m-l" aria-label="Move left">&larr;</button>
+      <div class="dpad-mid"><button type="button" class="step" data-act="m-f" aria-label="Move away">&uarr;</button><button type="button" class="step" data-act="m-b" aria-label="Move closer">&darr;</button></div>
+      <button type="button" class="step" data-act="m-r" aria-label="Move right">&rarr;</button>
+      <div class="dpad-ud"><button type="button" class="step" data-act="m-u">Up</button><button type="button" class="step" data-act="m-d">Down</button></div>
+    </div>
+    <div class="chips"><button type="button" data-act="reset" id="adjReset">Back to its booth spot</button><button type="button" data-act="here">Bring in front of me</button></div>
+    <div class="actions"><button type="button" class="btn primary" data-close>Done</button></div>
+  </div>
 </div>
 
 <!-- Generic panel (people, objects, invite, help) -->

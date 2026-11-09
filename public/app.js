@@ -176,9 +176,8 @@
 
   function initLobby() {
     $('#nameInput').value = store.get('vsn.name') || '';
-    me.color = store.get('vsn.color');
-    if (!config.userColors.includes(me.color)) me.color = config.userColors[Math.floor(Math.random() * config.userColors.length)];
-    swatches($('#userColors'), config.userColors, me.color, (c) => { me.color = c; });
+    loadAvatar();
+    $('#customizeBtn').addEventListener('click', openAvatarEditor);
 
     $('#newRoomBtn').addEventListener('click', () => { $('#createRoom').hidden = false; $('#roomName').focus(); });
     $('#cancelRoom').addEventListener('click', () => { $('#createRoom').hidden = true; });
@@ -216,7 +215,7 @@
     if (!selectedRoom) return;
     me.name = $('#nameInput').value.trim().slice(0, 24) || 'Guest ' + Math.floor(Math.random() * 90 + 10);
     store.set('vsn.name', me.name);
-    store.set('vsn.color', me.color);
+    saveAvatarLocal();
     ROOM = selectedRoom.slug;
     const u = new URL(location.href); u.searchParams.set('room', ROOM); history.replaceState(null, '', u);
     unlockAudio();
@@ -248,7 +247,7 @@
     ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(ROOM)}`);
     ws.onopen = () => {
       reconnectDelay = 1000;
-      send({ type: 'hello', name: me.name, color: me.color, device: DEVICE, muted: me.muted, key: KEY, admin: ADMIN || undefined });
+      send({ type: 'hello', name: me.name, color: me.avatar.shirt, avatar: me.avatar, device: DEVICE, muted: me.muted, key: KEY, admin: ADMIN || undefined });
     };
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
@@ -319,6 +318,10 @@
         if (!m.item.mine) toast(`${m.item.author} added "${m.item.name}"`);
         break;
       case 'item-update': updateItem(m.item); break;
+      case 'item-replace':
+        if (!m.item.mine && !justUploaded.has(m.item.id)) toast(`${m.item.updatedBy || 'Someone'} replaced "${m.item.name}"`);
+        replaceItem(m.item);
+        break;
       case 'item-delete': removeItem(m.id); break;
       case 'signal': handleSignal(m.from, m.data); break;
       case 'room-deleted':
@@ -350,26 +353,160 @@
   }
 
   // ---------------- avatars ----------------
+  // Choices (the server checks them too): shirt colour, skin tone, head shape, headwear,
+  // eyewear and a hi-vis vest.
+  const AV = {
+    skin: ['#f6d7b8', '#e8b98f', '#c98f62', '#a46a3f', '#7a4a2a', '#4f2f1c'],
+    head: [['round', 'Round'], ['square', 'Square']],
+    hat: [['none', 'None'], ['hardhat-yellow', 'Hard hat, yellow'], ['hardhat-white', 'Hard hat, white'], ['hardhat-orange', 'Hard hat, orange'], ['cap', 'Cap'], ['beanie', 'Beanie'], ['headphones', 'Headphones']],
+    eyes: [['none', 'None'], ['glasses', 'Glasses'], ['safety', 'Safety glasses']]
+  };
+  const HAT_COLORS = { 'hardhat-yellow': '#f5c400', 'hardhat-white': '#f2f2ee', 'hardhat-orange': '#f36f21' };
+  const VEST = '#cdf23a';
+  function defaultAvatar() {
+    return { shirt: config.userColors[Math.floor(Math.random() * config.userColors.length)], skin: AV.skin[1], head: 'round', hat: 'none', eyes: 'none', vest: false };
+  }
+  function cleanAvatar(a) {
+    const d = defaultAvatar();
+    a = a && typeof a === 'object' ? a : {};
+    const has = (list, v) => list.some((x) => (Array.isArray(x) ? x[0] : x) === v);
+    return {
+      shirt: config.userColors.includes(a.shirt) ? a.shirt : d.shirt,
+      skin: has(AV.skin, a.skin) ? a.skin : d.skin,
+      head: has(AV.head, a.head) ? a.head : 'round',
+      hat: has(AV.hat, a.hat) ? a.hat : 'none',
+      eyes: has(AV.eyes, a.eyes) ? a.eyes : 'none',
+      vest: a.vest === true
+    };
+  }
+  function loadAvatar() {
+    let saved = null;
+    try { saved = JSON.parse(store.get('vsn.avatar') || 'null'); } catch (e) { /* ignore */ }
+    if (!saved) { const old = store.get('vsn.color'); if (old) saved = { shirt: old }; }
+    me.avatar = cleanAvatar(saved);
+    me.color = me.avatar.shirt;
+    renderAvatarSvg($('#lobbyAvatar'), me.avatar);
+  }
+  function saveAvatarLocal() { store.set('vsn.avatar', JSON.stringify(me.avatar)); }
+
+  // 2D preview (lobby and editor)
+  function renderAvatarSvg(container, a) {
+    if (!container) return;
+    const hat = a.hat, sq = a.head === 'square';
+    const shade = (hex, k) => { const n = parseInt(hex.slice(1), 16); const c = (v) => Math.max(0, Math.min(255, Math.round(v * k))); return `rgb(${c(n >> 16)},${c((n >> 8) & 255)},${c(n & 255)})`; };
+    let s = '<svg viewBox="0 0 120 150" xmlns="http://www.w3.org/2000/svg">';
+    s += '<ellipse cx="60" cy="144" rx="34" ry="4" fill="rgba(38,43,51,.15)"/>';
+    s += `<path d="M28 142 L34 92 Q60 78 86 92 L92 142 Z" fill="${a.shirt}"/>`;
+    if (a.vest) s += `<path d="M34 96 Q60 84 86 96 L89 130 L31 130 Z" fill="${VEST}"/><rect x="31.5" y="106" width="57" height="4" fill="#e6e9ec"/><rect x="31" y="118" width="58" height="4" fill="#e6e9ec"/><path d="M60 88 L60 130" stroke="${shade(VEST, 0.75)}" stroke-width="2"/>`;
+    s += `<rect x="53" y="76" width="14" height="12" rx="3" fill="${shade(a.skin, 0.9)}"/>`;
+    s += sq ? `<rect x="36" y="30" width="48" height="50" rx="10" fill="${a.skin}"/>` : `<circle cx="60" cy="54" r="26" fill="${a.skin}"/>`;
+    s += '<circle cx="51" cy="56" r="3.2" fill="#262b33"/><circle cx="69" cy="56" r="3.2" fill="#262b33"/>';
+    if (a.eyes === 'glasses') s += '<g fill="none" stroke="#262b33" stroke-width="2.2"><circle cx="51" cy="56" r="7"/><circle cx="69" cy="56" r="7"/><path d="M58 56 h4"/></g>';
+    if (a.eyes === 'safety') s += '<rect x="40" y="49" width="40" height="14" rx="6" fill="rgba(140,200,240,.55)" stroke="#262b33" stroke-width="2"/>';
+    const top = sq ? 30 : 28;
+    if (HAT_COLORS[hat]) { const c = HAT_COLORS[hat]; s += `<path d="M34 ${top + 16} Q34 ${top - 8} 60 ${top - 9} Q86 ${top - 8} 86 ${top + 16} Z" fill="${c}"/><rect x="28" y="${top + 13}" width="64" height="6" rx="3" fill="${shade(c, 0.88)}"/><rect x="57" y="${top - 8}" width="6" height="22" rx="3" fill="${shade(c, 0.9)}"/>`; }
+    if (hat === 'cap') s += `<path d="M36 ${top + 14} Q36 ${top - 6} 60 ${top - 6} Q84 ${top - 6} 84 ${top + 14} Z" fill="${shade(a.shirt, 0.8)}"/><path d="M62 ${top + 10} L96 ${top + 14} L94 ${top + 18} L62 ${top + 16} Z" fill="${shade(a.shirt, 0.65)}"/>`;
+    if (hat === 'beanie') s += `<path d="M36 ${top + 12} Q36 ${top - 14} 60 ${top - 14} Q84 ${top - 14} 84 ${top + 12} Z" fill="${shade(a.shirt, 0.75)}"/><rect x="34" y="${top + 8}" width="52" height="9" rx="4" fill="${shade(a.shirt, 0.6)}"/>`;
+    if (hat === 'headphones') s += `<path d="M34 54 Q34 ${top - 6} 60 ${top - 6} Q86 ${top - 6} 86 54" fill="none" stroke="#262b33" stroke-width="4"/><rect x="27" y="47" width="10" height="18" rx="4" fill="#262b33"/><rect x="83" y="47" width="10" height="18" rx="4" fill="#262b33"/>`;
+    s += '</svg>';
+    container.innerHTML = s;
+  }
+
+  // 3D avatar (three.js meshes under the head and body entities)
+  const avMats = new Map();
+  function avMat(color, opts) {
+    const key = color + JSON.stringify(opts || {});
+    if (!avMats.has(key)) avMats.set(key, new THREE.MeshStandardMaterial(Object.assign({ color, roughness: 0.6, metalness: 0 }, opts || {})));
+    return avMats.get(key);
+  }
+  const AVG = {
+    sphere: new THREE.SphereGeometry(1, 24, 16),
+    dome: new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+    box: new THREE.BoxGeometry(1, 1, 1),
+    cyl: new THREE.CylinderGeometry(1, 1, 1, 24),
+    torso: new THREE.CylinderGeometry(0.17, 0.15, 0.55, 24),
+    vest: new THREE.CylinderGeometry(0.178, 0.158, 0.44, 24, 1, true),
+    ring: new THREE.TorusGeometry(1, 0.06, 8, 32),
+    band: new THREE.TorusGeometry(0.17, 0.012, 8, 24, Math.PI)
+  };
+  function avMesh(parent, geo, mat, pos, scale, rot) {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(pos[0], pos[1], pos[2]);
+    if (scale) m.scale.set(scale[0], scale[1], scale[2]);
+    if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
+    parent.add(m);
+    return m;
+  }
+  function buildAvatar(p) {
+    const a = cleanAvatar(p.info.avatar || { shirt: p.info.color });
+    const key = JSON.stringify(a);
+    if (p.avatarKey === key) return;
+    p.avatarKey = key;
+    const head = p.el.querySelector('.av-head').object3D;
+    const body = p.el.querySelector('.av-body').object3D;
+    [head, body].forEach((g) => { [...g.children].forEach((c) => { if (c.userData.av) g.remove(c); }); });
+    const H = new THREE.Group(); H.userData.av = true; head.add(H);
+    const B = new THREE.Group(); B.userData.av = true; body.add(B);
+    const skin = avMat(a.skin), shirt = avMat(a.shirt, { roughness: 0.8 }), dark = avMat('#262b33', { roughness: 0.4 });
+    const sq = a.head === 'square';
+    // head and face (the face looks along -z, the way the person is looking)
+    if (sq) avMesh(H, AVG.box, skin, [0, 0, 0], [0.27, 0.29, 0.27]);
+    else avMesh(H, AVG.sphere, skin, [0, 0, 0], [0.155, 0.16, 0.155]);
+    const fz = sq ? -0.137 : -0.138;
+    for (const x of [-0.05, 0.05]) avMesh(H, AVG.sphere, dark, [x, 0.02, fz], [0.022, 0.024, 0.012]);
+    if (a.eyes === 'glasses') {
+      for (const x of [-0.05, 0.05]) avMesh(H, AVG.ring, dark, [x, 0.02, fz - 0.008], [0.038, 0.038, 0.038]);
+      avMesh(H, AVG.box, dark, [0, 0.022, fz - 0.008], [0.03, 0.006, 0.006]);
+    } else if (a.eyes === 'safety') {
+      avMesh(H, AVG.box, avMat('#8cc8f0', { transparent: true, opacity: 0.55, roughness: 0.1 }), [0, 0.02, fz - 0.012], [0.25, 0.07, 0.015]);
+      avMesh(H, AVG.box, dark, [0, 0.058, fz - 0.012], [0.25, 0.01, 0.018]);
+    }
+    const top = sq ? 0.145 : 0.04;
+    if (HAT_COLORS[a.hat]) {
+      const hm = avMat(HAT_COLORS[a.hat], { roughness: 0.35 });
+      avMesh(H, AVG.dome, hm, [0, top, 0], sq ? [0.19, 0.12, 0.19] : [0.17, 0.15, 0.17]);
+      avMesh(H, AVG.cyl, hm, [0, top + 0.004, 0], sq ? [0.23, 0.012, 0.23] : [0.21, 0.012, 0.21]);
+      avMesh(H, AVG.box, hm, [0, top + (sq ? 0.11 : 0.13), 0], [0.035, 0.035, sq ? 0.3 : 0.28]);
+    } else if (a.hat === 'cap') {
+      const cm = avMat(a.shirt, { roughness: 0.8 });
+      avMesh(H, AVG.dome, cm, [0, top, 0], sq ? [0.15, 0.08, 0.15] : [0.162, 0.13, 0.162]);
+      avMesh(H, AVG.box, cm, [0, top + 0.005, -0.17], [0.17, 0.012, 0.13]);
+    } else if (a.hat === 'beanie') {
+      const bm = avMat(a.shirt, { roughness: 0.95 });
+      avMesh(H, AVG.dome, bm, [0, top, 0], sq ? [0.15, 0.12, 0.15] : [0.165, 0.19, 0.165]);
+      avMesh(H, AVG.ring, bm, [0, top + 0.01, 0], sq ? [0.15, 0.15, 0.4] : [0.16, 0.16, 0.45], [Math.PI / 2, 0, 0]);
+    } else if (a.hat === 'headphones') {
+      const band = avMesh(H, AVG.band, dark, [0, 0.01, 0], sq ? [1.05, 1, 1] : [1, 1, 1]);
+      band.rotation.set(0, 0, 0);
+      for (const x of [-0.165, 0.165]) avMesh(H, AVG.cyl, dark, [x * (sq ? 1.05 : 1), 0.01, 0], [0.05, 0.04, 0.05], [0, 0, Math.PI / 2]);
+    }
+    // neck, shoulders, body, optional vest
+    avMesh(B, AVG.cyl, skin, [0, -0.2, 0], [0.055, 0.1, 0.055]);
+    avMesh(B, AVG.sphere, shirt, [0, -0.25, 0], [0.17, 0.08, 0.15]);
+    avMesh(B, AVG.torso, shirt, [0, -0.52, 0]);
+    if (a.vest) {
+      const vm = avMat(VEST, { roughness: 0.6, emissive: new THREE.Color(VEST), emissiveIntensity: 0.25, side: THREE.DoubleSide });
+      avMesh(B, AVG.vest, vm, [0, -0.5, 0]);
+      const stripe = avMat('#e6e9ec', { roughness: 0.2, metalness: 0.5 });
+      for (const y of [-0.45, -0.6]) avMesh(B, AVG.ring, stripe, [0, y, 0], [0.172, 0.172, 0.2], [Math.PI / 2, 0, 0]);
+    }
+    p.el.querySelector('.av-tag').object3D.position.y = a.hat === 'none' ? 0.34 : 0.4;
+  }
+
   function addPeer(info) {
     if (peers.has(info.id)) { updatePeer(info); return; }
     const root = el('a-entity', { 'avatar-lerp': '' }, $('#avatars'));
     root.object3D.position.fromArray(info.p || [0, 1.6, 0]);
-    const head = el('a-entity', { class: 'av-head' }, root);
-    const sphere = el('a-sphere', { class: 'av-color', radius: 0.16 }, head);
-    sphere.setAttribute('material', { color: info.color, roughness: 0.6 });
-    const visor = el('a-box', { width: 0.22, height: 0.08, depth: 0.06, position: '0 0.02 -0.14' }, head);
-    visor.setAttribute('material', { color: '#1b1f27', roughness: 0.3 });
-    const body = el('a-entity', { class: 'av-body' }, root);
-    const cyl = el('a-cylinder', { class: 'av-color', radius: 0.17, height: 0.62, position: '0 -0.55 0' }, body);
-    cyl.setAttribute('material', { color: info.color, roughness: 0.8 });
-    const tag = el('a-entity', { billboard: '', position: '0 0.36 0' }, root);
+    el('a-entity', { class: 'av-head' }, root);
+    el('a-entity', { class: 'av-body' }, root);
+    const tag = el('a-entity', { class: 'av-tag', billboard: '', position: '0 0.36 0' }, root);
     const bg = el('a-plane', { class: 'av-tagbg', width: 0.6, height: 0.11 }, tag);
     bg.setAttribute('material', { color: '#1b1f27', shader: 'flat', opacity: 0.8, transparent: true });
     const name = el('a-entity', { class: 'av-name', position: '0 0 0.002' }, tag);
     name.setAttribute('text', { value: '', align: 'center', color: '#ffffff', width: 0.9, wrapCount: 22 });
     const ring = el('a-ring', { class: 'av-ring', 'radius-inner': 0.2, 'radius-outer': 0.235, visible: false, billboard: '' }, root);
     ring.setAttribute('material', { color: '#3bd17a', shader: 'flat', side: 'double' });
-    peers.set(info.id, { info: { ...info }, el: root, pc: null, transceiver: null, pending: [], audio: null });
+    peers.set(info.id, { info: { ...info }, el: root, pc: null, transceiver: null, pending: [], audio: null, avatarKey: null });
     updatePeer(info);
     root.addEventListener('loaded', () => {
       const cur = peers.get(info.id);
@@ -381,13 +518,47 @@
     const p = peers.get(info.id);
     if (!p) return;
     Object.assign(p.info, info);
-    p.el.querySelectorAll('.av-color').forEach((e) => e.setAttribute('material', 'color', p.info.color));
+    buildAvatar(p);
     const label = font3d(p.info.name + (p.info.muted ? '  (muted)' : ''));
     p.el.querySelector('.av-name').setAttribute('text', { value: label });
     p.el.querySelector('.av-tagbg').setAttribute('width', Math.max(0.3, label.length * 0.034 + 0.08));
     if (p.info.muted) p.el.querySelector('.av-ring').setAttribute('visible', false);
     refreshPanel('people');
   }
+
+  // Editor (lobby and in the room)
+  let avDraft = null;
+  function openAvatarEditor() {
+    avDraft = Object.assign({}, me.avatar);
+    const draw = () => {
+      renderAvatarSvg($('#avatarPreview'), avDraft);
+      const pick = (box, list, key) => {
+        box.innerHTML = '';
+        list.forEach(([v, label]) => {
+          const b = el('button', { type: 'button', 'aria-pressed': String(avDraft[key] === v) }, box);
+          b.textContent = label;
+          b.onclick = () => { avDraft[key] = v; draw(); };
+        });
+      };
+      pick($('#avHead'), AV.head, 'head');
+      pick($('#avHat'), AV.hat, 'hat');
+      pick($('#avEyes'), AV.eyes, 'eyes');
+      $('#avVest').checked = !!avDraft.vest;
+    };
+    swatches($('#avShirt'), config.userColors, avDraft.shirt, (c) => { avDraft.shirt = c; renderAvatarSvg($('#avatarPreview'), avDraft); });
+    swatches($('#avSkin'), AV.skin, avDraft.skin, (c) => { avDraft.skin = c; renderAvatarSvg($('#avatarPreview'), avDraft); });
+    $('#avVest').onchange = () => { avDraft.vest = $('#avVest').checked; renderAvatarSvg($('#avatarPreview'), avDraft); };
+    draw();
+    openSheet('#avatarSheet');
+  }
+  $('#avSave').addEventListener('click', () => {
+    me.avatar = cleanAvatar(avDraft);
+    me.color = me.avatar.shirt;
+    saveAvatarLocal();
+    renderAvatarSvg($('#lobbyAvatar'), me.avatar);
+    closeSheet('#avatarSheet');
+    if (joined) { send({ type: 'profile', avatar: me.avatar }); toast('Avatar saved. Everyone here sees the new look.'); refreshPanel('people'); }
+  });
 
   function removePeer(id) {
     const p = peers.get(id);
@@ -566,81 +737,102 @@
   // together don't stand inside each other.
   function placeAtSpawn() {
     const rig = $('#rig').object3D;
-    rig.position.set(+(Math.random() * 2 - 1).toFixed(2), 0, +(11.8 + Math.random() * 1.4).toFixed(2));
+    rig.position.set(+(Math.random() * 2.4 - 1.2).toFixed(2), 0, +(20.4 + Math.random() * 1.4).toFixed(2));
     rig.rotation.set(0, 0, 0);
   }
 
   // ---------------- the exhibition hall ----------------
-  // 30 x 30 m hall. Four booths line each side wall (booth 1-4 left, 5-8 right), two round
-  // pedestals stand in the middle aisle for models, and the back wall has the notice board.
-  // Uploads go into a free booth or pedestal, facing the aisle.
-  const HALL = { half: 15, wallH: 7 };
+  // 48 x 48 m hall with 15 booths: 5 along the left wall (1-5, front to back), 5 along the back
+  // wall (6-10, left to right) and 5 along the right wall (11-15, back to front). Every booth
+  // holds one model on a plinth and two PDFs on stands. A free-standing notice wall sits in the
+  // middle of the hall, facing the entrance.
+  const HALL = { half: 24, wallH: 8 };
   const C3D = { concrete: '#d4d8db', inlay: '#c7ccd0', plaster: '#f2f3f1', panel: '#f8f9f8', steel: '#8a929c', graphite: '#262b33', felt: '#dde1e4', blueprint: '#2f6fc4' };
+  const BOOTH_W = 6, BOOTH_D = 4.2, PLINTH = { r: 1.05, h: 0.25, z: 2.55 };
   const BOOTHS = [];
-  [-9, -3, 3, 9].forEach((z, i) => BOOTHS.push({ n: i + 1, x: -13.6, z, ry: 90 }));
-  [-9, -3, 3, 9].forEach((z, i) => BOOTHS.push({ n: i + 5, x: 13.6, z, ry: -90 }));
-  const PEDESTALS = [{ x: 0, z: -4.5, top: 0.4 }, { x: 0, z: 3.5, top: 0.4 }];
+  [16, 8, 0, -8, -16].forEach((z) => BOOTHS.push({ n: BOOTHS.length + 1, x: -HALL.half + 0.12, z, ry: 90 }));
+  [-16, -8, 0, 8, 16].forEach((x) => BOOTHS.push({ n: BOOTHS.length + 1, x, z: -HALL.half + 0.12, ry: 0 }));
+  [-16, -8, 0, 8, 16].forEach((z) => BOOTHS.push({ n: BOOTHS.length + 1, x: HALL.half - 0.12, z, ry: -90 }));
+  const SLOT = {
+    pdf1: { x: -1.8, z: 0.75, ry: 12, label: 'PDF 1' },
+    pdf2: { x: 1.8, z: 0.75, ry: -12, label: 'PDF 2' },
+    model: { x: 0, z: PLINTH.z, y: PLINTH.h, ry: 0, label: 'Model' }
+  };
 
-  // Where an exhibit sits in a booth: PDFs stand just in front of the booth wall, models further out.
-  function boothSpot(b, kind) {
+  // World position and rotation of a slot inside a booth.
+  function slotPlacement(boothN, slot) {
+    const b = BOOTHS[boothN - 1]; const sl = SLOT[slot];
+    if (!b || !sl) return null;
     const a = THREE.MathUtils.degToRad(b.ry);
-    const d = kind === 'pdf' ? 0.55 : 1.4;
-    return { p: [+(b.x + Math.sin(a) * d).toFixed(3), 0, +(b.z + Math.cos(a) * d).toFixed(3)], ry: b.ry, s: kind === 'pdf' ? 1.1 : undefined };
+    const x = b.x + sl.x * Math.cos(a) + sl.z * Math.sin(a);
+    const z = b.z - sl.x * Math.sin(a) + sl.z * Math.cos(a);
+    return { p: [+x.toFixed(3), sl.y || 0, +z.toFixed(3)], ry: ((b.ry + sl.ry) % 360 + 360) % 360, s: slot === 'model' ? undefined : 1 };
   }
-  function spotTaken(p, excludeId) {
-    return [...items.values()].some((r) => r.data.id !== excludeId && Math.hypot(r.data.p[0] - p[0], r.data.p[2] - p[2]) < 1.6);
+  // What is in a booth right now: { model, pdf1, pdf2 } (records or undefined)
+  function boothContents(n) {
+    const out = {};
+    for (const rec of items.values()) if (rec.data.booth === n && rec.data.slot) out[rec.data.slot] = rec;
+    return out;
   }
-  function exhibitSpot(kind, excludeId) {
-    if (kind === 'model') {
-      for (const pd of PEDESTALS) {
-        const p = [pd.x, pd.top, pd.z];
-        if (!spotTaken(p, excludeId)) return { p, ry: 0, pedestal: true };
-      }
-    }
+  function freeSlot(n, kind) {
+    const c = boothContents(n);
+    return (kind === 'pdf' ? ['pdf1', 'pdf2'] : ['model']).find((sl) => !c[sl]) || null;
+  }
+  function nearestBooth(filterFn) {
+    const cam = scene.camera ? scene.camera.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3();
+    let best = null, bd = Infinity;
     for (const b of BOOTHS) {
-      const spot = boothSpot(b, kind);
-      if (!spotTaken(spot.p, excludeId)) return spot;
+      if (filterFn && !filterFn(b)) continue;
+      const d = Math.hypot(b.x - cam.x, b.z - cam.z);
+      if (d < bd) { bd = d; best = b; }
     }
-    return null;
+    return best;
   }
-  // Is this object sitting in a booth or on a pedestal?
+  // Which booth an object belongs to (or null for free-standing objects and doorways).
   function exhibitOf(d) {
-    if (!d) return null;
-    for (const pd of PEDESTALS) if (Math.hypot(d.p[0] - pd.x, d.p[2] - pd.z) < 1.2 && Math.abs(d.p[1] - pd.top) < 0.05) return { pedestal: pd };
-    for (const b of BOOTHS) {
-      for (const k of ['pdf', 'model']) {
-        const sp = boothSpot(b, k).p;
-        if (Math.hypot(d.p[0] - sp[0], d.p[2] - sp[2]) < 1.2) return { booth: b };
-      }
-    }
-    return null;
+    if (!d || !d.booth || !BOOTHS[d.booth - 1]) return null;
+    return { booth: BOOTHS[d.booth - 1], slot: d.slot };
   }
+  // Scale that makes a model fit on its plinth (or null if it already fits).
   function fitPatchFor(rec) {
     if (rec.data.kind !== 'model' || !rec.size) return null;
-    const footprint = Math.max(rec.size.x, rec.size.z);
-    const limit = 2.4; // fits a pedestal or booth
-    if (footprint * (rec.data.s || 1) > limit) return +(2.2 / footprint).toPrecision(4);
-    return null;
+    const foot = Math.max(rec.size.x, rec.size.z), hgt = rec.size.y;
+    const s = Math.min(2.0 / foot, 2.6 / Math.max(hgt, 0.01));
+    if (Math.abs(s - (rec.data.s || 1)) < 0.001) return null;
+    return +s.toPrecision(4);
   }
-  function putOnDisplay(id) {
+  // Put an object back on its spot in its booth.
+  function resetToSlot(id) {
     const rec = items.get(id);
-    if (!rec) return;
-    const spot = exhibitSpot(rec.data.kind, id);
-    if (!spot) return toast('All booths and pedestals are taken. Move or delete something first.', 3500);
-    const patch = { p: spot.p, ry: spot.ry };
-    if (spot.s && (rec.data.s || 1) < spot.s) patch.s = spot.s;
-    const fit = fitPatchFor(rec);
-    if (fit) patch.s = fit;
+    if (!rec || !rec.data.booth) return;
+    const sp = slotPlacement(rec.data.booth, rec.data.slot);
+    if (!sp) return;
+    const patch = { p: sp.p, ry: sp.ry };
+    if (rec.data.kind === 'model') { const fit = fitPatchFor(rec); if (fit) patch.s = fit; }
     itemPatch(id, patch);
   }
 
-  // Booth signs show what is on display there.
+  // Booth signs show the booth number and what is on display; the "+ Add file" sign shows
+  // only while the booth still has room.
   function updateBoothLabels() {
     for (const b of BOOTHS) {
       if (!b.label) continue;
-      const occ = [...items.values()].find((r) => r.data.kind !== 'portal' && exhibitOf(r.data) && exhibitOf(r.data).booth === b);
-      const text = occ ? font3d(itemTitle(occ.data)).toUpperCase().slice(0, 24) : `BOOTH ${b.n}`;
+      const c = boothContents(b.n);
+      const main = c.model || c.pdf1 || c.pdf2;
+      const text = main ? `${b.n}  ${font3d(itemTitle(main.data)).toUpperCase().slice(0, 26)}` : `BOOTH ${b.n}`;
       if (b.labelText !== text) { b.label.setAttribute('text', { value: text }); b.labelText = text; }
+      if (b.plaque) {
+        const needModel = !c.model, needPdf = !c.pdf1 || !c.pdf2;
+        const label = needModel && needPdf ? '+ Add model or PDF' : needModel ? '+ Add model' : needPdf ? '+ Add PDF' : '';
+        const show = !!label;
+        if (b.plaqueText !== label) {
+          b.plaqueText = label;
+          b.plaque.setAttribute('visible', show);
+          b.plaque.classList.toggle('clickable', show);
+          if (show) b.plaque.setAttribute('text', { value: label });
+          refreshRaycasters();
+        }
+      }
     }
   }
 
@@ -655,21 +847,22 @@
     root.object3D.add(deco);
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
     const planeGeo = new THREE.PlaneGeometry(1, 1);
-    const add = (geo, mat, pos, scale, rot, cast, receive) => {
+    const add = (geo, mat, pos, scale, rot, cast, receive, parent) => {
       const m = new THREE.Mesh(geo, mat);
       m.position.set(pos[0], pos[1], pos[2]);
       if (scale) m.scale.set(scale[0], scale[1], scale[2]);
       if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
       m.castShadow = !!cast; m.receiveShadow = !!receive;
-      deco.add(m);
+      (parent || deco).add(m);
       return m;
     };
-    const floorDecal = (canvasEl, x, z, w, d, rotY, opacity, y) =>
-      add(planeGeo, L.decal(canvasEl, opacity), [x, y || 0.012, z], [w, d, 1], [-Math.PI / 2, 0, rotY || 0]);
+    const floorDecal = (canvasEl, x, z, w, d, rotY, opacity, y, parent) =>
+      add(planeGeo, L.decal(canvasEl, opacity), [x, y || 0.012, z], [w, d, 1], [-Math.PI / 2, 0, rotY || 0], false, false, parent);
     // An interactive surface: an A-Frame entity (so it can be clicked and pinned) holding our own
     // textured mesh. Using a plain entity keeps A-Frame from replacing the material.
-    const surface = (parent, pos, w, h, d, mat, cls, cast, geo) => {
+    const surface = (parent, pos, w, h, d, mat, cls, cast, geo, rotY) => {
       const e = el('a-entity', { position: pos }, parent);
+      if (rotY) e.setAttribute('rotation', `0 ${rotY} 0`);
       if (cls) e.className = cls;
       const mesh = new THREE.Mesh(geo || boxGeo, mat);
       if (!geo) mesh.scale.set(w, h, d);
@@ -677,22 +870,23 @@
       e.setObject3D('mesh', mesh);
       return e;
     };
-    const txt = (parent, pos, value, width, color, wrap) => {
+    const txt = (parent, pos, value, width, color, wrap, rotY) => {
       const t = el('a-entity', { position: pos }, parent);
+      if (rotY) t.setAttribute('rotation', `0 ${rotY} 0`);
       t.setAttribute('text', { value, align: 'center', color: color || '#ffffff', width, wrapCount: wrap || 24 });
       return t;
     };
 
     // materials
     const M = {
-      concrete: L.std({ map: L.tex(L.T.concrete(), 30 / 4, 30 / 4), roughness: 0.3, metalness: 0 }),
-      plaster: L.std({ map: L.tex(L.T.plaster(), 10, 2.4), roughness: 0.92, emissive: new THREE.Color('#eef0ef'), emissiveIntensity: 0.38 }),
-      plasterSm: L.std({ map: L.tex(L.T.plaster(), 2, 1), roughness: 0.92, emissive: new THREE.Color('#eef0ef'), emissiveIntensity: 0.38 }),
+      concrete: L.std({ map: L.tex(L.T.concrete(), 48 / 4, 48 / 4), roughness: 0.3, metalness: 0 }),
+      plaster: L.std({ map: L.tex(L.T.plaster(), 16, 2.6), roughness: 0.92, emissive: new THREE.Color('#eef0ef'), emissiveIntensity: 0.38 }),
+      plasterSm: L.std({ map: L.tex(L.T.plaster(), 6, 2.6), roughness: 0.92, emissive: new THREE.Color('#eef0ef'), emissiveIntensity: 0.38 }),
       graphite: L.std({ color: C3D.graphite, roughness: 0.45, metalness: 0.1 }),
       steel: L.std({ color: '#9aa2ab', roughness: 0.32, metalness: 0.85 }),
       felt: L.std({ map: L.tex(L.T.felt(), 6, 2.4), roughness: 1, emissive: new THREE.Color('#dfe2e4'), emissiveIntensity: 0.3 }),
-      feltSm: L.std({ map: L.tex(L.T.felt(), 3.4, 2.1), roughness: 1, emissive: new THREE.Color('#dfe2e4'), emissiveIntensity: 0.3 }),
-      oak: L.std({ map: L.tex(L.T.oak(), 4.55 / 2.2, 2.55 / 2.2), roughness: 0.48 }),
+      feltSm: L.std({ map: L.tex(L.T.felt(), 3.2, 2.4), roughness: 1, emissive: new THREE.Color('#dfe2e4'), emissiveIntensity: 0.3 }),
+      oak: L.std({ map: L.tex(L.T.oak(), BOOTH_W / 2.2, BOOTH_D / 2.2), roughness: 0.48 }),
       boothWall: L.std({ map: L.tex(L.T.boothWall()), emissiveMap: L.tex(L.T.boothGlow()), emissive: new THREE.Color('#fff6e8'), emissiveIntensity: 0.62, roughness: 0.9 }),
       side: L.std({ color: '#f1f2f1', roughness: 0.85, emissive: new THREE.Color('#eceeed'), emissiveIntensity: 0.3 }),
       blue: new THREE.MeshBasicMaterial({ color: C3D.blueprint, toneMapped: false }),
@@ -701,99 +895,125 @@
       mat: L.std({ color: '#2a2f37', roughness: 1 })
     };
 
-    // floor
-    add(planeGeo, M.concrete, [0, 0.004, 0], [30, 30, 1], [-Math.PI / 2, 0, 0], false, true);
-    for (const x of [-3.2, 3.2]) add(planeGeo, L.std({ color: '#8f979f', roughness: 0.4, metalness: 0.7 }), [x, 0.007, 0], [0.05, 27, 1], [-Math.PI / 2, 0, 0], false, true);
-    add(planeGeo, M.mat, [0, 0.008, 13.2], [5, 2.6, 1], [-Math.PI / 2, 0, 0], false, true);
+    // floor, aisle lines in front of the booths, entrance mat
+    add(planeGeo, M.concrete, [0, 0.004, 0], [2 * H, 2 * H, 1], [-Math.PI / 2, 0, 0], false, true);
+    const lineM = L.std({ color: '#8f979f', roughness: 0.4, metalness: 0.7 });
+    const edge = H - BOOTH_D - 0.75;
+    add(planeGeo, lineM, [-edge, 0.007, 0.75], [0.05, 2 * edge + 1.5, 1], [-Math.PI / 2, 0, 0], false, true);
+    add(planeGeo, lineM, [edge, 0.007, 0.75], [0.05, 2 * edge + 1.5, 1], [-Math.PI / 2, 0, 0], false, true);
+    add(planeGeo, lineM, [0, 0.007, -edge], [2 * edge, 0.05, 1], [-Math.PI / 2, 0, 0], false, true);
+    add(planeGeo, M.mat, [0, 0.008, H - 1.4], [7, 2.8, 1], [-Math.PI / 2, 0, 0], false, true);
 
-    // walls (the front wall has a wide entrance) with a soft shadow line along their base
-    add(boxGeo, M.plaster, [0, WH / 2, -H], [30, WH, 0.2], null, false, true);
-    add(boxGeo, M.plaster, [-H, WH / 2, 0], [0.2, WH, 30], null, false, true);
-    add(boxGeo, M.plaster, [H, WH / 2, 0], [0.2, WH, 30], null, false, true);
-    add(boxGeo, M.plasterSm, [-9, WH / 2, H], [12, WH, 0.2], null, false, true);
-    add(boxGeo, M.plasterSm, [9, WH / 2, H], [12, WH, 0.2], null, false, true);
-    add(boxGeo, M.plasterSm, [0, WH - 1.25, H], [6, 2.5, 0.2], null, false, true);
-    add(boxGeo, M.steel, [0, WH - 2.5, H - 0.12], [6.1, 0.12, 0.08]);
+    // walls (the front wall has an 8 m entrance) with a soft shadow line along their base
+    add(boxGeo, M.plaster, [0, WH / 2, -H], [2 * H, WH, 0.2], null, false, true);
+    add(boxGeo, M.plaster, [-H, WH / 2, 0], [0.2, WH, 2 * H], null, false, true);
+    add(boxGeo, M.plaster, [H, WH / 2, 0], [0.2, WH, 2 * H], null, false, true);
+    add(boxGeo, M.plasterSm, [-14, WH / 2, H], [20, WH, 0.2], null, false, true);
+    add(boxGeo, M.plasterSm, [14, WH / 2, H], [20, WH, 0.2], null, false, true);
+    add(boxGeo, M.plasterSm, [0, WH - 1.5, H], [8, 3, 0.2], null, false, true);
+    add(boxGeo, M.steel, [0, WH - 3, H - 0.12], [8.1, 0.12, 0.08]);
     const ao = L.T.aoStrip();
-    floorDecal(ao, 0, -H + 0.65, 30, 1.2, 0);
-    floorDecal(ao, -H + 0.65, 0, 30, 1.2, Math.PI / 2);
-    floorDecal(ao, H - 0.65, 0, 30, 1.2, -Math.PI / 2);
-    floorDecal(ao, -9, H - 0.65, 12, 1.2, Math.PI);
-    floorDecal(ao, 9, H - 0.65, 12, 1.2, Math.PI);
+    floorDecal(ao, 0, -H + 0.65, 2 * H, 1.2, 0);
+    floorDecal(ao, -H + 0.65, 0, 2 * H, 1.2, Math.PI / 2);
+    floorDecal(ao, H - 0.65, 0, 2 * H, 1.2, -Math.PI / 2);
+    floorDecal(ao, -14, H - 0.65, 20, 1.2, Math.PI);
+    floorDecal(ao, 14, H - 0.65, 20, 1.2, Math.PI);
 
-    // ceiling with four skylights over the centre aisle, steel trusses and linear lights
-    const openings = [[-12, -8], [-5.5, -1.5], [1.5, 5.5], [8, 12]].map(([z0, z1]) => ({ x0: -3.5, x1: 3.5, z0, z1 }));
-    const ceilMat = L.std({ map: L.tex(L.T.plaster(), 8, 8), alphaMap: L.T.ceilingAlpha(openings, H), alphaTest: 0.5, roughness: 0.95, side: THREE.FrontSide, emissive: new THREE.Color('#d3d6d9'), emissiveIntensity: 0.75 });
-    add(planeGeo, ceilMat, [0, WH, 0], [30, 30, 1], [Math.PI / 2, 0, 0]);
-    for (const o of openings) { // skylight frames and mullions
-      const cz = (o.z0 + o.z1) / 2, dz = o.z1 - o.z0;
-      add(boxGeo, M.steel, [0, WH - 0.05, o.z0], [7.1, 0.1, 0.1]);
-      add(boxGeo, M.steel, [0, WH - 0.05, o.z1], [7.1, 0.1, 0.1]);
-      for (const x of [-3.5, -1.75, 0, 1.75, 3.5]) add(boxGeo, M.steel, [x, WH - 0.05, cz], [0.06, 0.08, dz]);
+    // ceiling with nine skylights, steel trusses and linear pendant lights
+    const openings = [];
+    for (const cx of [-12, 0, 12]) for (const cz of [-12, 0, 12]) openings.push({ x0: cx - 3.5, x1: cx + 3.5, z0: cz - 2.5, z1: cz + 2.5 });
+    const ceilMat = L.std({ map: L.tex(L.T.plaster(), 12, 12), alphaMap: L.T.ceilingAlpha(openings, H), alphaTest: 0.5, roughness: 0.95, side: THREE.FrontSide, emissive: new THREE.Color('#d3d6d9'), emissiveIntensity: 0.75 });
+    add(planeGeo, ceilMat, [0, WH, 0], [2 * H, 2 * H, 1], [Math.PI / 2, 0, 0]);
+    for (const o of openings) {
+      const cx = (o.x0 + o.x1) / 2, cz = (o.z0 + o.z1) / 2, dz = o.z1 - o.z0;
+      add(boxGeo, M.steel, [cx, WH - 0.05, o.z0], [7.1, 0.1, 0.1]);
+      add(boxGeo, M.steel, [cx, WH - 0.05, o.z1], [7.1, 0.1, 0.1]);
+      for (const dx of [-3.5, -1.75, 0, 1.75, 3.5]) add(boxGeo, M.steel, [cx + dx, WH - 0.05, cz], [0.06, 0.08, dz]);
     }
-    for (const z of [-10, -3.5, 3, 9.5]) add(boxGeo, M.steel, [0, WH - 0.4, z], [30, 0.14, 0.14]);
-    for (const x of [-7, 7]) add(boxGeo, M.steel, [x, WH - 0.4, 0], [0.1, 0.1, 30]);
+    for (const z of [-18, -6, 6, 18]) add(boxGeo, M.steel, [0, WH - 0.4, z], [2 * H, 0.14, 0.14]);
+    for (const x of [-18, -6, 6, 18]) add(boxGeo, M.steel, [x, WH - 0.4, 0], [0.1, 0.1, 2 * H]);
     for (const x of [-6.2, 6.2]) {
-      for (const z of [-8.5, -1.5, 5.5]) {
-        add(boxGeo, M.graphite, [x, 5.6, z], [0.12, 0.07, 5.2]);
-        add(boxGeo, M.led, [x, 5.56, z], [0.07, 0.012, 5.1]);
-        for (const dz of [-2.2, 2.2]) add(boxGeo, M.graphite, [x, 6.3, z + dz], [0.012, 1.3, 0.012]);
+      for (const z of [-15, -5, 5, 15]) {
+        add(boxGeo, M.graphite, [x, 6.4, z], [0.12, 0.07, 6]);
+        add(boxGeo, M.led, [x, 6.36, z], [0.07, 0.012, 5.9]);
+        for (const dz of [-2.6, 2.6]) add(boxGeo, M.graphite, [x, 7.2, z + dz], [0.012, 1.6, 0.012]);
       }
     }
 
-    // back wall: banner with room name, notice board, Questions and Ideas
-    add(boxGeo, M.graphite, [0, 5.5, -H + 0.18], [13, 1.1, 0.12]);
-    add(boxGeo, M.blue, [0, 4.92, -H + 0.25], [13, 0.05, 0.02]);
-    const title = el('a-entity', { id: 'roomTitle3d', position: `0 5.5 ${-H + 0.26}` }, root);
-    title.setAttribute('text', { value: 'EXHIBITION HALL', align: 'center', color: '#ffffff', width: 11, wrapCount: 30 });
-    add(boxGeo, M.graphite, [0, 2.4, -H + 0.13], [8.2, 3.2, 0.06], null, true);
-    const nb = surface(root, `0 2.4 ${-H + 0.17}`, 8, 3, 0.04, M.felt, 'clickable pinnable');
+    // free-standing notice wall in the middle of the hall: notice board facing the entrance,
+    // Questions and Ideas on the back
+    const NZ = 7;
+    add(boxGeo, M.graphite, [0, 1.9, NZ], [10.4, 3.8, 0.3], null, true, true);
+    add(boxGeo, M.graphite, [0, 4.25, NZ], [10.4, 0.9, 0.34], null, true);
+    add(boxGeo, M.blue, [0, 3.77, NZ + 0.18], [10.4, 0.04, 0.02]);
+    add(boxGeo, M.blue, [0, 3.77, NZ - 0.18], [10.4, 0.04, 0.02]);
+    const title = el('a-entity', { id: 'roomTitle3d', position: `0 4.25 ${NZ + 0.18}` }, root);
+    title.setAttribute('text', { value: 'EXHIBITION HALL', align: 'center', color: '#ffffff', width: 9, wrapCount: 30 });
+    const nb = surface(root, `0 1.85 ${NZ + 0.17}`, 9.6, 3.1, 0.04, M.felt, 'clickable pinnable');
     nb.id = 'noticeBoard';
-    txt(root, `0 4.25 ${-H + 0.2}`, 'Notice board', 5, C3D.graphite, 24);
-    for (const [x, name] of [[-8.6, 'Questions'], [8.6, 'Ideas']]) {
-      add(boxGeo, M.graphite, [x, 2.1, -H + 0.13], [4.4, 2.8, 0.05], null, true);
-      surface(root, `${x} 2.1 ${-H + 0.17}`, 4.2, 2.6, 0.04, M.feltSm, 'clickable pinnable');
-      txt(root, `${x} 3.85 ${-H + 0.2}`, name, 3.6, C3D.graphite, 18);
+    txt(root, `0 3.55 ${NZ + 0.2}`, 'Notice board', 4.5, C3D.graphite, 24);
+    for (const [x, name] of [[2.45, 'Questions'], [-2.45, 'Ideas']]) {
+      surface(root, `${x} 1.85 ${NZ - 0.17}`, 4.6, 3.1, 0.04, M.feltSm, 'clickable pinnable');
+      txt(root, `${x} 3.55 ${NZ - 0.2}`, name, 3.6, C3D.graphite, 18, 180);
     }
+    txt(root, `0 4.25 ${NZ - 0.18}`, 'Questions and ideas', 7, '#ffffff', 30, 180);
+    floorDecal(L.T.contact(), 0, NZ, 13, 3.4, 0, 0.75, 0.011);
 
-    // booths: oak floor, lit back wall, side panels, sign and three track lights
+    // booths: oak floor, lit back wall, side panels, sign, three track lights, a plinth for the
+    // model, and a "+ Add file" sign at the entrance of the booth
     const trackHeads = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.065, 0.16, 12), M.graphite, BOOTHS.length * 3);
     const tmp = new THREE.Object3D();
+    const plinthGeo = new THREE.CylinderGeometry(PLINTH.r, PLINTH.r, PLINTH.h, 64);
+    const ringGeo = new THREE.TorusGeometry(PLINTH.r, 0.016, 8, 96);
+    const aoM = L.decal(ao, 0.9);
     BOOTHS.forEach((b, i) => {
-      const g = el('a-entity', { position: `${b.x} 0 ${b.z}`, rotation: `0 ${b.ry} 0` }, root);
-      const gd = new THREE.Group(); // decoration in booth space
+      const g = el('a-entity', { position: `${b.x} 0 ${b.z}`, rotation: `0 ${b.ry} 0`, class: 'booth' }, root);
+      g.dataset.booth = String(b.n);
+      const gd = new THREE.Group();
       gd.position.set(b.x, 0, b.z); gd.rotation.y = THREE.MathUtils.degToRad(b.ry);
       deco.add(gd);
-      const put = (geo, mat, pos, scale, rot, cast, receive) => {
-        const m = new THREE.Mesh(geo, mat);
-        m.position.set(pos[0], pos[1], pos[2]); if (scale) m.scale.set(scale[0], scale[1], scale[2]); if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
-        m.castShadow = !!cast; m.receiveShadow = !!receive; gd.add(m); return m;
-      };
-      surface(g, '0 1.45 0', 4.6, 2.9, 0.08, M.boothWall, 'clickable pinnable', true);
-      put(boxGeo, M.graphite, [0, 3.17, 0.04], [4.8, 0.46, 0.16], null, true);
-      put(boxGeo, M.blue, [0, 2.92, 0.12], [4.8, 0.035, 0.012]);
-      b.label = txt(g, '0 3.17 0.13', `BOOTH ${b.n}`, 4.2, '#ffffff', 22);
+      const put = (geo, mat, pos, scale, rot, cast, receive) => add(geo, mat, pos, scale, rot, cast, receive, gd);
+      surface(g, '0 1.5 0.05', BOOTH_W, 3.0, 0.1, M.boothWall, 'clickable pinnable', true);
+      put(boxGeo, M.graphite, [0, 3.32, 0.1], [BOOTH_W + 0.2, 0.5, 0.18], null, true);
+      put(boxGeo, M.blue, [0, 3.06, 0.2], [BOOTH_W + 0.2, 0.035, 0.012]);
+      b.label = txt(g, '0 3.32 0.2', `BOOTH ${b.n}`, BOOTH_W - 0.6, '#ffffff', 30);
       b.labelText = `BOOTH ${b.n}`;
-      for (const sx of [-2.3, 2.3]) put(boxGeo, M.side, [sx, 1.2, 1.25], [0.04, 2.4, 2.5], null, true, true);
-      put(planeGeo, M.oak, [0, 0.01, 1.3], [4.55, 2.55, 1], [-Math.PI / 2, 0, 0], false, true);
-      const aoM = L.decal(ao, 0.9);
-      put(planeGeo, aoM, [0, 0.014, 0.35], [4.5, 0.6, 1], [-Math.PI / 2, 0, 0]);
-      [-1.5, 0, 1.5].forEach((tx, k) => {
-        tmp.position.set(tx, 2.86, 0.32); tmp.rotation.set(-0.5, 0, 0); tmp.updateMatrix();
+      for (const sx of [-BOOTH_W / 2, BOOTH_W / 2]) put(boxGeo, M.side, [sx, 1.25, BOOTH_D / 2], [0.05, 2.5, BOOTH_D], null, true, true);
+      put(planeGeo, M.oak, [0, 0.01, BOOTH_D / 2], [BOOTH_W - 0.05, BOOTH_D, 1], [-Math.PI / 2, 0, 0], false, true);
+      put(planeGeo, aoM, [0, 0.014, 0.4], [BOOTH_W - 0.1, 0.6, 1], [-Math.PI / 2, 0, 0]);
+      // plinth for the model (you can step onto it)
+      const pl = surface(g, `0 ${PLINTH.h / 2} ${PLINTH.z}`, 0, 0, 0, M.white, 'clickable floor', true, plinthGeo);
+      pl.addEventListener('click', onFloorClick);
+      put(ringGeo, M.blue, [0, PLINTH.h, PLINTH.z], null, [Math.PI / 2, 0, 0]);
+      floorDecal(L.T.contact(), 0, PLINTH.z, 3, 3, 0, 0.6, 0.013, gd);
+      [-2, 0, 2].forEach((tx, k) => {
+        tmp.position.set(tx, 3.0, 0.38); tmp.rotation.set(-0.5, 0, 0); tmp.updateMatrix();
         const m4 = new THREE.Matrix4().multiplyMatrices(new THREE.Matrix4().compose(gd.position, gd.quaternion, new THREE.Vector3(1, 1, 1)), tmp.matrix);
         trackHeads.setMatrixAt(i * 3 + k, m4);
       });
+      // "+ Add file" sign on a slim post at the booth entrance
+      put(boxGeo, M.steel, [BOOTH_W / 2 - 0.45, 0.55, BOOTH_D - 0.15], [0.04, 1.1, 0.04], null, true);
+      b.plaque = vrButton(g, '+ Add model or PDF', BOOTH_W / 2 - 0.45, 1.18, 0.86, 0.17, () => openUploadForBooth(b.n),
+        { color: '#2f6fc4', hover: '#4d8fe0', charSize: 0.05 });
+      b.plaque.setAttribute('position', `${BOOTH_W / 2 - 0.45} 1.18 ${BOOTH_D - 0.12}`);
+      b.plaqueText = '+ Add model or PDF';
     });
     trackHeads.instanceMatrix.needsUpdate = true;
     deco.add(trackHeads);
-
-    // display pedestals for models (you can step onto them)
-    PEDESTALS.forEach((pd) => {
-      surface(root, `${pd.x} ${pd.top / 2} ${pd.z}`, 0, 0, 0, M.white, 'clickable floor', true, new THREE.CylinderGeometry(1.5, 1.5, pd.top, 72));
-      add(new THREE.TorusGeometry(1.5, 0.018, 8, 96), M.blue, [pd.x, pd.top, pd.z], null, [Math.PI / 2, 0, 0]);
-      floorDecal(L.T.contact(), pd.x, pd.z, 4.4, 4.4, 0, 0.85, 0.011);
-    });
     L.mergeStatic(deco);
+    updateBoothLabels();
+  }
+
+  // Tap / click / aim at the floor or a plinth to walk there.
+  function onFloorClick(e) {
+    if (fromDrag(e)) return;
+    const hit = e.detail && e.detail.intersection;
+    if (hit) $('#rig').components['rig-move'].glideTo(hit.point.x, hit.point.z, hit.point.y);
+  }
+
+  function openUploadForBooth(n) {
+    if (scene.is('vr-mode')) return vrToast('Take off the headset to upload files (or use a phone or computer).', 3000);
+    openUpload({ booth: n });
   }
   // ---------------- shared objects: models & PDFs ----------------
   const PDF_W = 1.6;   // panel width in metres at scale 1
@@ -826,6 +1046,18 @@
     refreshPanel('objects');
   }
 
+  // A new file for an existing object: rebuild it in place and keep its sticky notes.
+  function replaceItem(it) {
+    const cur = items.get(it.id);
+    if (cur && cur.data.url === it.url) { updateItem(it); return; } // already showing this file
+    const keep = [...notes.values()].filter((n) => n.data.on === it.id).map((n) => n.data);
+    const wasMenu = menuItemId === it.id;
+    removeItem(it.id);
+    addItem(it);
+    keep.forEach(addNote);
+    if (wasMenu) closeItemMenu();
+  }
+
   function applyItemTransform(rec) {
     const d = rec.data;
     rec.root.object3D.position.fromArray(d.p);
@@ -843,6 +1075,7 @@
     applyItemTransform(rec);
     if (rec.data.kind === 'pdf' && pageChanged) { showPdfPage(rec); updatePdfNoteVisibility(rec); }
     updateBoothLabels();
+    if (adjustId === patch.id) { syncAdjustUI(); refreshSelection(); }
     refreshPanel('objects');
   }
 
@@ -854,6 +1087,9 @@
     if (rec.doc) rec.doc.destroy().catch(() => {});
     if (rec.root.parentNode) rec.root.parentNode.removeChild(rec.root);
     items.delete(id);
+    if (menuItemId === id) closeItemMenu();
+    if (adjustId === id) { if (!$('#adjust').hidden) $('#adjust').hidden = true; closeAdjust(); }
+    if (selection && selection.id === id) selectItem(null);
     if (window.VSNLook) VSNLook.refreshShadows();
     updateBoothLabels();
     refreshPanel('objects');
@@ -896,15 +1132,17 @@
     rec.content.object3D.updateMatrixWorld(true);
     if (window.VSNLook) VSNLook.shadows(mesh, true, true);
     refreshRaycasters();
+    refreshSelection();
+    if (adjustId === rec.data.id) syncAdjustUI();
 
     if (justUploaded.has(rec.data.id)) {
       justUploaded.delete(rec.data.id);
       const maxDim = Math.max(rec.size.x, rec.size.y, rec.size.z);
-      const footprint = Math.max(rec.size.x, rec.size.z);
-      if (exhibitOf(rec.data) && footprint > 2.4) {
-        send({ type: 'item-update', id: rec.data.id, s: +(2.2 / footprint).toPrecision(4) });
-        toast('Model resized to fit its display. Use "1:1" in Objects for real size.', 6000);
-      } else if (maxDim > 18 || maxDim < 0.3) {
+      const fit = exhibitOf(rec.data) ? fitPatchFor(rec) : null;
+      if (fit && Math.abs(fit - 1) > 0.02) {
+        itemPatch(rec.data.id, { s: fit });
+        toast(fit < 1 ? 'Model scaled to fit its booth. Click it and choose Adjust for real size (1:1).' : `"${itemTitle(rec.data)}" is ready.`, 6000);
+      } else if (!exhibitOf(rec.data) && (maxDim > 18 || maxDim < 0.3)) {
         send({ type: 'item-update', id: rec.data.id, s: +(6 / maxDim).toPrecision(4) });
         toast(maxDim > 18 ? 'Large model: scaled down to fit the room. Use "1:1" in Objects for real size.' : 'Small model: scaled up to be visible. Use "1:1" in Objects for real size.', 6000);
       } else toast(`"${itemTitle(rec.data)}" is ready.`);
@@ -1092,7 +1330,7 @@
         const where = exhibitOf(rec.data);
         const tex = rec.textures.get(rec.data.page || 1);
         if (where && where.booth && tex) {
-          const s = +Math.min(1.5, 2.75 / (PDF_BASE + PDF_W * tex.userData.aspect)).toFixed(3);
+          const s = +Math.min(1.15, 2.85 / (PDF_BASE + PDF_W * tex.userData.aspect)).toFixed(3);
           if (Math.abs(s - (rec.data.s || 1)) > 0.01) itemPatch(rec.data.id, { s });
         }
         toast(`"${itemTitle(rec.data)}" is ready (${rec.pages} page${rec.pages > 1 ? 's' : ''}).`);
@@ -1206,15 +1444,81 @@
   // ---------------- uploads ----------------
   let uploadFile = null;
   let uploadXhr = null;
-  function openUpload() {
+  // Upload into a booth slot (1 model + 2 PDFs per booth), or replace an existing object.
+  let uploadMode = null; // { booth } or { replace: id }
+  let boothPicked = false; // true once the viewer chose a booth (or came from a booth's sign)
+  function boothSummary(n) {
+    const c = boothContents(n);
+    const pdfs = (c.pdf1 ? 1 : 0) + (c.pdf2 ? 1 : 0);
+    return `Booth ${n}: ${c.model ? 'model added' : 'no model'}, ${pdfs} of 2 PDFs`;
+  }
+  function fillBoothSelect(selected) {
+    const sel = $('#uploadBooth');
+    sel.innerHTML = '';
+    for (const b of BOOTHS) {
+      const o = el('option', { value: String(b.n) }, sel);
+      o.textContent = boothSummary(b.n);
+      const c = boothContents(b.n);
+      if (c.model && c.pdf1 && c.pdf2) o.textContent += ' (full)';
+    }
+    sel.value = String(selected);
+  }
+  function uploadKind(f) { return f && f.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'model'; }
+  function updateUploadHint() {
+    const msg = $('#uploadMsg');
+    if (uploadMode && uploadMode.replace) return;
+    const n = Number($('#uploadBooth').value);
+    if (!uploadFile) { msg.textContent = `Each booth holds 1 model and 2 PDFs. Max ${config.maxModelMB} MB for models, ${config.maxPdfMB} MB for PDFs.`; return; }
+    const kind = uploadKind(uploadFile);
+    const slot = freeSlot(n, kind);
+    if (!slot) {
+      msg.textContent = kind === 'pdf' ? `Booth ${n} already has two PDFs. Pick another booth, or replace one of them from its menu.` : `Booth ${n} already has a model. Pick another booth, or replace it from its menu.`;
+      $('#uploadGo').disabled = true;
+      return;
+    }
+    msg.textContent = `Goes into booth ${n} as ${SLOT[slot].label}.` + (uploadFile.size > 30 * 1048576 && kind === 'model' ? ' Large model: it may load slowly on phones and headsets.' : '');
+    $('#uploadGo').disabled = false;
+  }
+  function openUpload(opts) {
+    opts = opts || {};
     uploadFile = null;
     $('#uploadForm').reset();
     $('#dropZone').classList.remove('has-file');
-    $('#dropLabel').innerHTML = '<b>Choose a file</b><br><span class="fine">.glb, .gltf, .obj (3D models) or .pdf</span>';
-    $('#uploadMsg').textContent = `Max ${config.maxModelMB} MB for models, ${config.maxPdfMB} MB for PDFs. Everyone in the room will see it.`;
     $('#uploadProgress').hidden = true;
     $('#uploadGo').disabled = true;
+    const replacing = opts.replace && items.get(opts.replace);
+    uploadMode = replacing ? { replace: opts.replace } : { booth: opts.booth };
+    boothPicked = !!opts.booth;
+    $('#boothField').hidden = !!replacing;
+    if (replacing) {
+      const d = replacing.data;
+      $('#uploadTitle').textContent = `Replace "${itemTitle(d)}"`;
+      $('#uploadGo').textContent = 'Replace';
+      $('#fileInput').setAttribute('accept', d.kind === 'pdf' ? '.pdf,application/pdf' : '.glb,.gltf,.obj,model/gltf-binary');
+      $('#dropLabel').innerHTML = '';
+      el('b', {}, $('#dropLabel')).textContent = d.kind === 'pdf' ? 'Choose the new PDF' : 'Choose the new model';
+      el('br', {}, $('#dropLabel'));
+      el('span', { class: 'fine' }, $('#dropLabel')).textContent = d.kind === 'pdf' ? '.pdf' : '.glb, .gltf or .obj';
+      $('#uploadMsg').textContent = 'It keeps its place in the booth and its sticky notes.';
+    } else {
+      $('#uploadTitle').textContent = 'Add a model or PDF';
+      $('#uploadGo').textContent = 'Upload to booth';
+      $('#fileInput').setAttribute('accept', '.glb,.gltf,.obj,.pdf,model/gltf-binary,application/pdf');
+      $('#dropLabel').innerHTML = '<b>Choose a file</b><br><span class="fine">.glb, .gltf or .obj models, or a .pdf</span>';
+      const start = opts.booth || (nearestBooth((b) => freeSlot(b.n, 'model') || freeSlot(b.n, 'pdf')) || BOOTHS[0]).n;
+      fillBoothSelect(start);
+      updateUploadHint();
+    }
     openSheet('#upload');
+  }
+  $('#uploadBooth').addEventListener('change', () => { boothPicked = true; updateUploadHint(); });
+  // If the viewer didn't pick a booth, move to the nearest one with room for this kind of file.
+  function autoPickBooth() {
+    if (boothPicked || !uploadFile || (uploadMode && uploadMode.replace)) return;
+    const kind = uploadKind(uploadFile);
+    if (freeSlot(Number($('#uploadBooth').value), kind)) return;
+    const b = nearestBooth((bb) => freeSlot(bb.n, kind));
+    if (b) $('#uploadBooth').value = String(b.n);
   }
   $('#fileInput').addEventListener('change', () => {
     const f = $('#fileInput').files[0];
@@ -1229,6 +1533,8 @@
         : 'Please choose a .glb, .gltf, .obj or .pdf file.';
       return;
     }
+    const rep = uploadMode && uploadMode.replace ? items.get(uploadMode.replace) : null;
+    if (rep && (rep.data.kind === 'pdf') !== isPdf) { $('#uploadMsg').textContent = rep.data.kind === 'pdf' ? 'Replace a PDF with another PDF.' : 'Replace a model with another model (.glb, .gltf or .obj).'; return; }
     const limit = (isPdf ? config.maxPdfMB : config.maxModelMB) * 1048576;
     if (f.size > limit) { $('#uploadMsg').textContent = `This file is ${fmtMB(f.size)}. The limit is ${fmtMB(limit)}.`; return; }
     uploadFile = f;
@@ -1237,23 +1543,32 @@
     const b = el('b', {}, $('#dropLabel')); b.textContent = f.name;
     el('br', {}, $('#dropLabel'));
     el('span', { class: 'fine' }, $('#dropLabel')).textContent = `${isPdf ? 'PDF document' : '3D model'} · ${fmtMB(f.size)} · tap to change`;
-    $('#uploadMsg').textContent = f.size > 30 * 1048576 && !isPdf ? 'Large model: it may load slowly on phones and headsets.' : '';
-    $('#uploadGo').disabled = false;
+    if (rep) { $('#uploadMsg').textContent = 'It keeps its place in the booth and its sticky notes.'; $('#uploadGo').disabled = false; }
+    else { autoPickBooth(); updateUploadHint(); }
   });
   $('#uploadForm').addEventListener('submit', (e) => {
     e.preventDefault();
     if (!uploadFile || uploadXhr) return;
-    const isPdf = uploadFile.name.toLowerCase().endsWith('.pdf');
-    const spot = exhibitSpot(isPdf ? 'pdf' : 'model');
-    const f = spot || viewerFrame(isPdf ? 2.4 : 3);
-    const q = new URLSearchParams({ name: uploadFile.name, p: f.p.join(','), ry: String(f.ry) });
-    if (spot && spot.s) q.set('s', String(spot.s));
+    const kind = uploadKind(uploadFile);
+    const q = new URLSearchParams({ name: uploadFile.name });
+    if (uploadMode && uploadMode.replace) {
+      q.set('replace', uploadMode.replace);
+    } else {
+      const n = Number($('#uploadBooth').value);
+      const slot = freeSlot(n, kind);
+      if (!slot) return updateUploadHint();
+      const sp = slotPlacement(n, slot);
+      q.set('booth', String(n)); q.set('slot', slot);
+      q.set('p', sp.p.join(',')); q.set('ry', String(sp.ry));
+      if (sp.s) q.set('s', String(sp.s));
+    }
     const xhr = new XMLHttpRequest();
     uploadXhr = xhr;
     xhr.open('POST', `/api/rooms/${encodeURIComponent(ROOM)}/upload?${q}`);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.setRequestHeader('X-Client-Key', KEY);
     xhr.setRequestHeader('X-Client-Name', encodeURIComponent(me.name));
+    if (ADMIN) xhr.setRequestHeader('X-Admin-Key', ADMIN);
     $('#uploadProgress').hidden = false;
     $('#uploadGo').disabled = true;
     const bar = $('#uploadProgress div');
@@ -1263,12 +1578,12 @@
       uploadXhr = null;
       let data = {};
       try { data = JSON.parse(xhr.responseText); } catch (err) { /* ignore */ }
-      if (xhr.status === 201 && data.item) {
+      if ((xhr.status === 201 || xhr.status === 200) && data.item) {
         justUploaded.add(data.item.id);
-        addItem(data.item);
+        if (xhr.status === 200) replaceItem(data.item); else addItem(data.item);
         closeSheet('#upload');
         const where = exhibitOf(data.item);
-        toast(where ? `Uploaded. "${data.item.name}" is going ${where.pedestal ? 'on a display pedestal' : `into booth ${where.booth.n}`}...` : `Uploaded. Loading "${data.item.name}" in front of you...`);
+        toast(xhr.status === 200 ? `Replaced. Loading "${data.item.name}"...` : where ? `Uploaded. "${data.item.name}" is going into booth ${where.booth.n}...` : `Uploaded. Loading "${data.item.name}"...`);
       } else {
         $('#uploadMsg').textContent = data.error || `Upload failed (${xhr.status}).`;
         $('#uploadGo').disabled = false;
@@ -1394,8 +1709,189 @@
     const hit = e.detail && e.detail.intersection;
     const place = placementFromHit(hit);
     if (!place) return;
+    if (itemId && items.has(itemId)) return openItemMenu(itemId, place);
     startNoteAt(place, itemId);
   }
+
+  // ---------------- object menu & adjust ----------------
+  let menuItemId = null;
+  let menuPlace = null;
+  let adjustId = null;
+  let selection = null; // outline around the object being worked on
+  const canManage = (d) => !!(d && (d.mine || me.isAdmin || roomInfo.mine));
+
+  function selectItem(id) {
+    if (selection) { scene.object3D.remove(selection.helper); selection = null; }
+    const rec = id && items.get(id);
+    if (!rec) return;
+    const helper = new THREE.BoxHelper(rec.inner.object3D, 0x2f6fc4);
+    helper.material.depthTest = false; helper.material.transparent = true; helper.material.opacity = 0.9; helper.material.toneMapped = false;
+    helper.renderOrder = 5;
+    scene.object3D.add(helper);
+    selection = { id, helper };
+  }
+  function refreshSelection() { if (selection) { const rec = items.get(selection.id); if (rec) selection.helper.setFromObject(rec.inner.object3D); else selectItem(null); } }
+
+  function describeItem(d) {
+    const kind = d.kind === 'pdf' ? 'PDF' : '3D model';
+    const where = d.booth ? `Booth ${d.booth}` : 'In the hall';
+    return `${kind} · ${where} · added by ${d.author}`;
+  }
+
+  function openItemMenu(id, place) {
+    const rec = items.get(id);
+    if (!rec) return;
+    ['#adjust', '#detail', '#composer'].forEach((sel) => { if (!$(sel).hidden) closeSheet(sel); });
+    menuItemId = id; menuPlace = place;
+    selectItem(id);
+    showGhost(place, lastNoteColor);
+    if (scene.is('vr-mode')) return openVrItemMenu(id);
+    const d = rec.data;
+    $('#menuTitle').textContent = itemTitle(d);
+    $('#menuMeta').textContent = describeItem(d);
+    const manage = canManage(d);
+    $('#menuReplaceLbl').textContent = d.kind === 'pdf' ? 'Replace with a new PDF' : 'Replace with a new model';
+    $('#menuRemoveLbl').textContent = d.kind === 'pdf' ? 'Remove PDF' : 'Remove model';
+    $('#menuReplace').disabled = !manage;
+    $('#menuRemove').disabled = !manage;
+    $('#menuHint').textContent = manage ? '' : 'Only the person who uploaded it, the room creator, or the admin can replace or remove it.';
+    openSheet('#itemMenu');
+  }
+  function closeItemMenu(keepGhost) {
+    if (!$('#itemMenu').hidden) { $('#itemMenu').hidden = true; syncSheetState(); }
+    closeVrPanel();
+    if (!keepGhost) hideGhost();
+    if (!adjustId) selectItem(null);
+    menuItemId = null;
+  }
+  $('#menuNote').addEventListener('click', () => {
+    const id = menuItemId, place = menuPlace;
+    closeItemMenu(true);
+    if (id && place) startNoteAt(place, id);
+  });
+  $('#menuAdjust').addEventListener('click', () => { const id = menuItemId; closeItemMenu(); openAdjust(id); });
+  $('#menuReplace').addEventListener('click', () => { const id = menuItemId; closeItemMenu(); openUpload({ replace: id }); });
+  $('#menuRemove').addEventListener('click', () => { const id = menuItemId; closeItemMenu(); deleteItem(id); });
+
+  // Adjust: everything goes through itemPatch (applied here at once, sent to everyone throttled)
+  let adjustTimer = null; let adjustPending = null;
+  function adjustPatch(id, patch, immediate) {
+    updateItem({ id, ...patch });
+    refreshSelection();
+    adjustPending = Object.assign(adjustPending || { id }, patch);
+    if (immediate) { clearTimeout(adjustTimer); adjustTimer = null; flushAdjust(); return; }
+    if (!adjustTimer) adjustTimer = setTimeout(() => { adjustTimer = null; flushAdjust(); }, 90);
+  }
+  function flushAdjust() { if (adjustPending) { send({ type: 'item-update', ...adjustPending }); adjustPending = null; } }
+
+  const SCALE_RANGE = { model: [-2.7, 0.7], pdf: [-0.5, 0.5] }; // log10 of the scale
+  function scaleText(rec) {
+    const d = rec.data, s = d.s || 1;
+    if (d.kind === 'pdf') return `${Math.round(s * 100)}%`;
+    const ratio = Math.abs(s - 1) < 1e-3 ? 'Real size' : s < 1 ? `1:${+(1 / s).toPrecision(3)}` : `${+s.toPrecision(3)}x`;
+    return rec.size ? `${ratio} · ${(rec.size.x * s).toFixed(1)} x ${(rec.size.z * s).toFixed(1)} x ${(rec.size.y * s).toFixed(1)} m` : ratio;
+  }
+  function syncAdjustUI() {
+    const rec = adjustId && items.get(adjustId);
+    if (!rec || $('#adjust').hidden) return;
+    const d = rec.data;
+    const r = SCALE_RANGE[d.kind] || SCALE_RANGE.model;
+    const sl = $('#adjScale');
+    sl.min = r[0]; sl.max = r[1];
+    if (document.activeElement !== sl) sl.value = Math.log10(d.s || 1);
+    $('#adjScaleVal').textContent = scaleText(rec);
+    if (document.activeElement !== $('#adjRot')) $('#adjRot').value = Math.round(d.ry || 0) % 360;
+    $('#adjRotVal').textContent = `${Math.round(d.ry || 0) % 360}°`;
+    $('#adjScaleChips').hidden = d.kind !== 'model';
+    $('#adjReset').hidden = !d.booth;
+  }
+  // On phones the panel covers the lower half of the screen: turn the view so the object
+  // sits in the upper half, where it stays visible while you adjust it.
+  function frameAboveSheet(id) {
+    const rec = items.get(id);
+    if (!rec || window.innerWidth >= 640 || scene.is('vr-mode')) return;
+    const box = new THREE.Box3().setFromObject(rec.inner.object3D);
+    if (box.isEmpty()) return;
+    const c = box.getCenter(new THREE.Vector3());
+    const cam = scene.camera.getWorldPosition(new THREE.Vector3());
+    const d = c.sub(cam);
+    const lc = $('#cam').components['look-controls'];
+    if (!lc) return;
+    const fov = THREE.MathUtils.degToRad(scene.camera.fov || 80);
+    lc.yawObject.rotation.y = Math.atan2(-d.x, -d.z) - $('#rig').object3D.rotation.y;
+    lc.pitchObject.rotation.x = Math.atan2(d.y, Math.hypot(d.x, d.z)) - fov * 0.24;
+  }
+  function openAdjust(id) {
+    const rec = items.get(id);
+    if (!rec) return;
+    adjustId = id;
+    selectItem(id);
+    if (scene.is('vr-mode')) return openVrAdjust(id);
+    $('#adjustTitle').textContent = `Adjust "${itemTitle(rec.data)}"`;
+    openSheet('#adjust');
+    syncAdjustUI();
+    frameAboveSheet(id);
+  }
+  function closeAdjust() {
+    flushAdjust();
+    adjustId = null;
+    selectItem(null);
+    closeVrPanel();
+  }
+  function moveRelative(id, dir, step) {
+    const rec = items.get(id);
+    if (!rec) return;
+    const f = scene.camera.getWorldDirection(new THREE.Vector3()); f.y = 0;
+    if (f.lengthSq() < 1e-6) f.set(0, 0, -1);
+    f.normalize();
+    const r = new THREE.Vector3(-f.z, 0, f.x);
+    const p = rec.data.p.slice();
+    if (dir === 'f') { p[0] += f.x * step; p[2] += f.z * step; }
+    if (dir === 'b') { p[0] -= f.x * step; p[2] -= f.z * step; }
+    if (dir === 'r') { p[0] += r.x * step; p[2] += r.z * step; }
+    if (dir === 'l') { p[0] -= r.x * step; p[2] -= r.z * step; }
+    if (dir === 'u') p[1] += step;
+    if (dir === 'd') p[1] = Math.max(0, p[1] - step);
+    adjustPatch(id, { p: p.map((v) => +v.toFixed(3)) });
+  }
+  function adjustAction(act) {
+    const id = adjustId;
+    const rec = id && items.get(id);
+    if (!rec) return;
+    const d = rec.data;
+    const r = SCALE_RANGE[d.kind] || SCALE_RANGE.model;
+    const clampS = (v) => +Math.min(10 ** r[1], Math.max(10 ** r[0], v)).toPrecision(5);
+    if (act === 's-') adjustPatch(id, { s: clampS((d.s || 1) / 1.1) });
+    else if (act === 's+') adjustPatch(id, { s: clampS((d.s || 1) * 1.1) });
+    else if (act === 's1') adjustPatch(id, { s: 1 }, true);
+    else if (act === 'sfit') { const fit = fitPatchFor(rec); adjustPatch(id, { s: fit || d.s || 1 }, true); }
+    else if (act === 'r-') adjustPatch(id, { ry: ((Math.round(d.ry || 0) + 15) % 360 + 360) % 360 });
+    else if (act === 'r+') adjustPatch(id, { ry: ((Math.round(d.ry || 0) - 15) % 360 + 360) % 360 });
+    else if (act.startsWith('m-')) moveRelative(id, act.slice(2), 0.1);
+    else if (act === 'reset') { resetToSlot(id); refreshSelection(); }
+    else if (act === 'here') { bringHere(id); refreshSelection(); }
+    syncAdjustUI();
+  }
+  // buttons: tap for one step, hold to keep going
+  $('#adjust').querySelectorAll('[data-act]').forEach((b) => {
+    const act = b.dataset.act;
+    const repeatable = /^(s-|s\+|r-|r\+|m-)/.test(act);
+    let t1 = null, t2 = null;
+    const stop = () => { clearTimeout(t1); clearInterval(t2); t1 = t2 = null; b.classList.remove('held'); flushAdjust(); };
+    if (!repeatable) { b.addEventListener('click', () => adjustAction(act)); return; }
+    b.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      b.classList.add('held');
+      adjustAction(act);
+      t1 = setTimeout(() => { t2 = setInterval(() => adjustAction(act), 70); }, 380);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((t) => b.addEventListener(t, stop));
+    b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); adjustAction(act); } });
+  });
+  $('#adjScale').addEventListener('input', (e) => { if (adjustId) { adjustPatch(adjustId, { s: +(10 ** Number(e.target.value)).toPrecision(5) }); syncAdjustUI(); } });
+  $('#adjScale').addEventListener('change', flushAdjust);
+  $('#adjRot').addEventListener('input', (e) => { if (adjustId) { adjustPatch(adjustId, { ry: Number(e.target.value) }); syncAdjustUI(); } });
+  $('#adjRot').addEventListener('change', flushAdjust);
 
   function startNoteAt(place, itemId) {
     const opts = { mode: 'new', world: place };
@@ -1471,19 +1967,23 @@
     $('#deleteBtn').onclick = () => { if (confirm('Delete this sticky note for everyone?')) { send({ type: 'note-delete', id: n.id }); closeSheet('#detail'); } };
   }
 
-  function openSheet(sel) { $(sel).hidden = false; }
+  function syncSheetState() { document.body.classList.toggle('sheet-open', !!document.querySelector('.sheet-wrap:not([hidden])')); }
+  function openSheet(sel) { $(sel).hidden = false; syncSheetState(); }
   function closeSheet(sel, keepGhost) {
     $(sel).hidden = true;
     if (sel === '#composer' && !keepGhost) hideGhost();
     if (sel === '#detail') openNoteId = null;
     if (sel === '#panel') $('#panel').dataset.kind = '';
     if (sel === '#upload' && uploadXhr) { uploadXhr.abort(); uploadXhr = null; }
+    if (sel === '#itemMenu') closeItemMenu(keepGhost);
+    if (sel === '#adjust') closeAdjust();
+    syncSheetState();
   }
   document.querySelectorAll('.sheet-wrap').forEach((w) => {
     w.addEventListener('click', (e) => { if (e.target === w || e.target.closest('[data-close]')) closeSheet('#' + w.id); });
   });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') ['#composer', '#detail', '#panel', '#upload'].forEach((s) => { if (!$(s).hidden) closeSheet(s); });
+    if (e.key === 'Escape') ['#composer', '#detail', '#panel', '#upload', '#itemMenu', '#adjust', '#avatarSheet'].forEach((s) => { if (!$(s).hidden) closeSheet(s); });
   });
 
   const panelBuilders = {};
@@ -1519,7 +2019,7 @@
         el('span', {}, li).textContent = name;
         el('span', { class: 'tag' }, li).textContent = tag;
       };
-      row(me.name + ' (you)', me.color, `${DEVICE} · ${me.muted ? 'muted' : 'mic on'}`);
+      row(me.name + ' (you)', me.avatar.shirt, `${DEVICE} · ${me.muted ? 'muted' : 'mic on'}`);
       for (const p of peers.values()) row(p.info.name, p.info.color, `${p.info.device} · ${p.info.muted ? 'muted' : 'mic on'}`);
       el('p', { class: 'fine' }, body).textContent = `${notes.size} sticky note${notes.size === 1 ? '' : 's'} and ${items.size} object${items.size === 1 ? '' : 's'} in this room.`;
       if (window.VSNLook) {
@@ -1533,6 +2033,9 @@
         });
       }
       const actions = el('div', { class: 'actions' }, body);
+      const av = el('button', { class: 'btn', type: 'button' }, actions);
+      av.textContent = 'Customize avatar';
+      av.onclick = openAvatarEditor;
       const a = el('a', { class: 'btn', href: `/api/rooms/${encodeURIComponent(ROOM)}/notes.csv`, download: '' }, actions);
       a.textContent = 'Download notes (CSV)';
       a.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;text-decoration:none';
@@ -1554,10 +2057,11 @@
   function showObjects() {
     openPanel('objects', 'Objects in this room', (body) => {
       if (!items.size) {
-        el('p', { class: 'empty' }, body).textContent = 'Nothing uploaded yet. Add a 3D model (.glb, .gltf, .obj) or a PDF and everyone here will see it.';
+        el('p', { class: 'empty' }, body).textContent = 'Nothing uploaded yet. Each of the 15 booths holds 1 model and 2 PDFs. Use "+ Add" at a booth or the button below.';
       }
       const ul = el('ul', { class: 'objs' }, body);
-      for (const rec of items.values()) {
+      const order = [...items.values()].sort((a, b) => (a.data.booth || 99) - (b.data.booth || 99) || String(a.data.slot).localeCompare(String(b.data.slot)));
+      for (const rec of order) {
         const d = rec.data;
         const li = el('li', {}, ul);
         const head = el('div', { class: 'head' }, li);
@@ -1569,26 +2073,17 @@
           const s = d.s || 1;
           info = `3D model · ${(rec.size.x * s).toFixed(1)} x ${(rec.size.z * s).toFixed(1)} x ${(rec.size.y * s).toFixed(1)} m · ${Math.abs(s - 1) < 1e-4 ? 'real scale' : `scale ${s < 1 ? '1:' + +(1 / s).toPrecision(3) : s.toPrecision(3) + 'x'}`}`;
         } else info = '3D model · loading';
-        el('span', { class: 'meta' }, head).textContent = d.author;
-        el('div', { class: 'meta' }, li).textContent = d.kind === 'portal' ? info : `${info} · ${fmtMB(d.size || 0)}`;
+        el('span', { class: 'meta' }, head).textContent = d.booth ? `Booth ${d.booth}` : d.author;
+        el('div', { class: 'meta' }, li).textContent = d.kind === 'portal' ? info : `${info} · ${fmtMB(d.size || 0)} · ${d.author}`;
         const tools = el('div', { class: 'tools' }, li);
         const tool = (label, fn, cls, aria) => { const b = el('button', { type: 'button', class: cls || '', 'aria-label': aria || label }, tools); b.textContent = label; b.onclick = fn; return b; };
         if (d.kind === 'portal') tool('Enter room', () => enterPortal(d.id));
         tool('Go to', () => { closeSheet('#panel'); goTo(d.id); });
-        tool('Bring here', () => { bringHere(d.id); });
-        if (d.kind !== 'portal' && !exhibitOf(d)) tool('Put on display', () => putOnDisplay(d.id));
-        tool('Turn left', () => itemPatch(d.id, { ry: ((d.ry || 0) + 15) % 360 }));
-        tool('Turn right', () => itemPatch(d.id, { ry: ((d.ry || 0) + 345) % 360 }));
-        tool('Smaller', () => itemPatch(d.id, { s: +((d.s || 1) / 1.25).toPrecision(5) }));
-        tool('Bigger', () => itemPatch(d.id, { s: +((d.s || 1) * 1.25).toPrecision(5) }));
-        if (d.kind === 'model') {
-          tool('1:1', () => itemPatch(d.id, { s: 1 }), '', 'Real scale');
-          tool('Fit 6 m', () => { if (rec.size) itemPatch(d.id, { s: +(6 / Math.max(rec.size.x, rec.size.y, rec.size.z)).toPrecision(4) }); }, '', 'Fit to 6 metres');
-        } else if (d.kind === 'pdf') {
-          tool('Prev page', () => turnPage(d.id, -1));
-          tool('Next page', () => turnPage(d.id, 1));
-        }
-        if (d.mine || me.isAdmin) tool('Delete', () => deleteItem(d.id), 'danger');
+        if (d.kind !== 'portal') tool('Move, rotate or resize', () => { closeSheet('#panel'); openAdjust(d.id); });
+        else tool('Bring here', () => { bringHere(d.id); });
+        if (d.kind === 'pdf') { tool('Prev page', () => turnPage(d.id, -1)); tool('Next page', () => turnPage(d.id, 1)); }
+        if (canManage(d) && d.kind !== 'portal') tool('Replace', () => { closeSheet('#panel'); openUpload({ replace: d.id }); });
+        if (canManage(d)) tool('Remove', () => deleteItem(d.id), 'danger');
       }
       const actions = el('div', { class: 'actions' }, body);
       actions.style.marginTop = '14px';
@@ -1808,6 +2303,70 @@
     btns.forEach(([label, fn], i) => vrButton(root, label, -W / 2 + w / 2 + i * (w + gap), y, w, 0.08, fn, { charSize: 0.03 }));
     refreshPointersSoon();
   }
+  // Object menu in VR: same choices as on screen (replacing a file needs a phone or computer)
+  function vrPanelBase(width, height, title, subtitle, low) {
+    closeVrPanel(); closeVrKeyboard(true);
+    const root = el('a-entity', { class: 'vr-panel' }, $('#vrLayer'));
+    vrPanel = root;
+    if (low) { // off to the right, angled toward you, so the object stays in view
+      const cam = scene.camera;
+      const pos = cam.getWorldPosition(new THREE.Vector3());
+      const dir = cam.getWorldDirection(new THREE.Vector3()); dir.y = 0;
+      if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1);
+      dir.normalize();
+      const right = new THREE.Vector3(-dir.z, 0, dir.x);
+      const p = pos.clone().addScaledVector(dir, 0.72).addScaledVector(right, 0.5);
+      p.y = pos.y - 0.3;
+      root.object3D.position.copy(p);
+      root.object3D.lookAt(pos.x, p.y, pos.z);
+      root.object3D.rotateX(-0.35);
+    }
+    else inFrontOfViewer(root, 1.0, -0.18);
+    const bg = el('a-entity', { position: '0 0 -0.002' }, root);
+    bg.setAttribute('geometry', { primitive: 'plane', width, height });
+    bg.setAttribute('material', { color: '#262b33', shader: 'flat', opacity: 0.94, transparent: true });
+    if (window.VSNLook) VSNLook.untoned(bg);
+    const t = el('a-entity', { position: `${-width / 2 + 0.04} ${height / 2 - 0.05} 0.003` }, root);
+    t.setAttribute('text', { value: font3d(title).slice(0, 40), color: '#ffffff', width: width * 0.9, wrapCount: 30, anchor: 'left' });
+    if (subtitle) {
+      const st = el('a-entity', { position: `${-width / 2 + 0.04} ${height / 2 - 0.1} 0.003` }, root);
+      st.setAttribute('text', { value: font3d(subtitle).slice(0, 60), color: '#aeb5bf', width: width * 0.9, wrapCount: 48, anchor: 'left' });
+    }
+    return root;
+  }
+  function openVrItemMenu(id) {
+    const rec = items.get(id);
+    if (!rec) return;
+    const d = rec.data, manage = canManage(d);
+    const W = 0.62;
+    const root = vrPanelBase(W, 0.5, itemTitle(d), describeItem(d));
+    const btn = (label, y, fn, opts) => vrButton(root, label, 0, y, W - 0.08, 0.075, fn, Object.assign({ charSize: 0.028 }, opts || {}));
+    btn('Add sticky note here', 0.07, () => { const p = menuPlace; closeItemMenu(true); if (p) startNoteAt(p, id); }, { color: '#2f6fc4', hover: '#4d8fe0' });
+    btn('Move, rotate or resize', -0.02, () => { closeItemMenu(); openAdjust(id); });
+    btn(manage ? (d.kind === 'pdf' ? 'Remove PDF' : 'Remove model') : 'Remove (uploader only)', -0.11, () => { if (!manage) return vrToast('Only the uploader, room creator or admin can remove it.'); closeItemMenu(); send({ type: 'item-delete', id }); }, manage ? { color: '#5b3439', hover: '#b4373f' } : { color: '#30353e', hover: '#30353e' });
+    btn('Close', -0.2, () => closeItemMenu());
+    refreshPointersSoon();
+  }
+  function openVrAdjust(id) {
+    const rec = items.get(id);
+    if (!rec) return;
+    const W = 0.78;
+    const root = vrPanelBase(W, 0.56, `Adjust ${itemTitle(rec.data)}`, 'Size, rotation and position', true);
+    const row = (label, y) => { const t = el('a-entity', { position: `${-W / 2 + 0.04} ${y} 0.003` }, root); t.setAttribute('text', { value: label, color: '#aeb5bf', width: 0.5, wrapCount: 20, anchor: 'left' }); };
+    const b = (label, x, y, w, act) => vrButton(root, label, x, y, w, 0.07, () => adjustAction(act), { charSize: 0.026 });
+    row('Size', 0.12);
+    b('Smaller', -0.14, 0.12, 0.13, 's-'); b('Bigger', 0.0, 0.12, 0.13, 's+');
+    if (rec.data.kind === 'model') { b('1:1', 0.14, 0.12, 0.1, 's1'); b('Fit', 0.27, 0.12, 0.1, 'sfit'); }
+    row('Turn', 0.03);
+    b('Turn left', -0.14, 0.03, 0.13, 'r-'); b('Turn right', 0.0, 0.03, 0.13, 'r+');
+    if (rec.data.booth) b('Booth spot', 0.2, 0.03, 0.24, 'reset');
+    row('Move', -0.06);
+    b('Left', -0.17, -0.06, 0.1, 'm-l'); b('Right', -0.06, -0.06, 0.1, 'm-r'); b('Away', 0.05, -0.06, 0.1, 'm-f'); b('Closer', 0.16, -0.06, 0.1, 'm-b');
+    b('Up', 0.27, -0.06, 0.08, 'm-u'); b('Down', 0.27, -0.145, 0.08, 'm-d');
+    vrButton(root, 'Done', -0.1, -0.21, 0.3, 0.07, () => closeAdjust(), { color: '#2f6fc4', hover: '#4d8fe0', charSize: 0.03 });
+    refreshPointersSoon();
+  }
+
   function closeVrPanel() {
     if (vrPanel && vrPanel.parentNode) vrPanel.parentNode.removeChild(vrPanel);
     vrPanel = null;
@@ -1944,7 +2503,7 @@
     const useGaze = DEVICE === 'phone';
     setGazeMode(useGaze);
     setHandRays(!useGaze);
-    ['#composer', '#detail', '#panel', '#upload'].forEach((s) => { if (!$(s).hidden) closeSheet(s); });
+    ['#composer', '#detail', '#panel', '#upload', '#itemMenu', '#adjust', '#avatarSheet'].forEach((s) => { if (!$(s).hidden) closeSheet(s); });
     if (useGaze) vrToast('Aim the ring and press the Cardboard button', 3500);
     else vrToast(me.muted ? 'Mic off - press A or X to talk' : 'Mic on', 2500);
   });
@@ -1984,11 +2543,7 @@
     buildVenue(); // build the hall first so its boards and pedestals get wired below
     document.querySelectorAll('.pinnable').forEach((n) => n.addEventListener('click', (e) => onSurfaceClick(e, null)));
     // Floor and pedestals: tap / click / aim there to walk to that spot (and step onto it).
-    document.querySelectorAll('.floor').forEach((f) => f.addEventListener('click', (e) => {
-      if (fromDrag(e)) return;
-      const hit = e.detail && e.detail.intersection;
-      if (hit) $('#rig').components['rig-move'].glideTo(hit.point.x, hit.point.z, hit.point.y);
-    }));
+    $('#floor').addEventListener('click', onFloorClick);
     refreshRaycasters();
   }
 

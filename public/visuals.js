@@ -288,11 +288,11 @@
 
     // the "sun": a soft key light from high up, casting the only real-time shadows
     sun = new THREE.DirectionalLight(0xfffaf2, 1.15);
-    sun.position.set(-7, 16, 6);
+    sun.position.set(-10, 24, 9);
     sun.target.position.set(0, 0, 0);
     const sm = isMobile ? 1024 : 2048;
     sun.shadow.mapSize.set(sm, sm);
-    Object.assign(sun.shadow.camera, { left: -17, right: 17, top: 17, bottom: -17, near: 2, far: 40 });
+    Object.assign(sun.shadow.camera, { left: -26, right: 26, top: 26, bottom: -26, near: 2, far: 60 });
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.02;
     scene.object3D.add(sun);
