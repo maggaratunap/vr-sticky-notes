@@ -271,7 +271,7 @@
         me.isAdmin = !!m.isAdmin;
         roomInfo = m.room;
         $('#roomLabel').textContent = roomInfo.name;
-        $('#roomTitle3d').setAttribute('text', { value: font3d(roomInfo.name).toUpperCase().slice(0, 34) });
+        if ($('#roomTitle3d')) $('#roomTitle3d').setAttribute('text', { value: font3d(roomInfo.name).toUpperCase().slice(0, 34) });
         document.title = `${roomInfo.name} - VR Sticky Notes`;
         for (const id of [...notes.keys()]) removeNote(id);
         const incoming = new Set(m.items.map((i) => i.id));
@@ -874,8 +874,7 @@
   // overhead garage door on the front wall.
   // 15 booths: 5 along the left wall (1-5, front to back), 5 along the back wall (6-10, left to
   // right) and 5 along the right wall (11-15, back to front). Every booth holds one model on a
-  // plinth and two PDFs on stands. A free-standing notice wall sits in the middle of the hall,
-  // facing the entrance.
+  // plinth and two PDFs on stands. The middle of the hall is left open.
   const HALL = { half: 24, wallH: 12 };
   const C3D = { concrete: '#d4d8db', inlay: '#c7ccd0', plaster: '#f2f3f1', panel: '#f8f9f8', steel: '#8a929c', graphite: '#262b33', felt: '#dde1e4', blueprint: '#2f6fc4' };
   const BOOTH_W = 6, BOOTH_D = 4.2, PLINTH = { r: 1.05, h: 0.25, z: 2.55 };
@@ -1011,15 +1010,12 @@
     const M = {
       graphite: L.std({ color: C3D.graphite, roughness: 0.45, metalness: 0.1 }),
       steel: L.std({ color: '#9aa2ab', roughness: 0.32, metalness: 0.85 }),
-      felt: L.std({ map: L.tex(L.T.felt(), 6, 2.4), roughness: 1, emissive: new THREE.Color('#dfe2e4'), emissiveIntensity: 0.3 }),
-      feltSm: L.std({ map: L.tex(L.T.felt(), 3.2, 2.4), roughness: 1, emissive: new THREE.Color('#dfe2e4'), emissiveIntensity: 0.3 }),
       oak: L.std({ map: L.tex(L.T.oak(), BOOTH_W / 2.2, BOOTH_D / 2.2), roughness: 0.48 }),
       boothWall: L.std({ map: L.tex(L.T.boothWall()), emissiveMap: L.tex(L.T.boothGlow()), emissive: new THREE.Color('#fff6e8'), emissiveIntensity: 0.62, roughness: 0.9 }),
       side: L.std({ color: '#f1f2f1', roughness: 0.85, emissive: new THREE.Color('#eceeed'), emissiveIntensity: 0.3 }),
       blue: new THREE.MeshBasicMaterial({ color: C3D.blueprint, toneMapped: false }),
       led: new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }),
-      white: L.std({ color: '#f7f7f6', roughness: 0.22, metalness: 0 }),
-      mat: L.std({ color: '#2a2f37', roughness: 1 })
+      white: L.std({ color: '#f7f7f6', roughness: 0.22, metalness: 0 })
     };
 
     // ---- the high bay ----
@@ -1188,11 +1184,15 @@
     }
 
     // back wall: the lab on the mezzanine looks out over the bay through a long window
+    // (layers sit several centimetres apart so they never flicker against each other at a distance)
     add(boxGeo, K.navy, [5, 7.3, 0.35], [12.4, 4.6, 0.7], null, true, true, WB);
-    add(planeGeo, K.lab, [5, 7.35, 0.705], [10.4, 2.6, 1], null, false, false, WB);
-    for (let k = 0; k <= 4; k++) add(boxGeo, K.black, [-0.2 + k * 2.6, 7.35, 0.72], [0.05, 2.6, 0.03], null, false, false, WB);
-    add(boxGeo, K.black, [5, 8.66, 0.72], [10.5, 0.05, 0.03], null, false, false, WB);
-    add(boxGeo, K.galv, [5, 6.03, 0.74], [10.6, 0.05, 0.08], null, false, false, WB);
+    add(planeGeo, K.lab, [5, 7.35, 0.76], [10.4, 2.6, 1], null, false, false, WB);
+    for (let k = 0; k <= 4; k++) add(boxGeo, K.black, [-0.2 + k * 2.6, 7.35, 0.8], [0.06, 2.66, 0.05], null, false, false, WB);
+    add(boxGeo, K.black, [5, 8.68, 0.8], [10.5, 0.06, 0.05], null, false, false, WB);
+    add(boxGeo, K.galv, [5, 6.0, 0.82], [10.6, 0.06, 0.12], null, false, false, WB);
+    // room name on the panel under the window
+    const title = el('a-entity', { id: 'roomTitle3d', position: `5 5.45 ${-H + 0.72}` }, root);
+    title.setAttribute('text', { value: 'HIGH BAY', align: 'center', color: '#ffffff', width: 9, wrapCount: 34 });
 
     // front wall: large sectional garage door with tracks and opener, bollards, a door with an
     // exit sign, tool chests and a stainless counter
@@ -1221,25 +1221,6 @@
     }
     add(boxGeo, K.stainless, [-18.2, 0.47, 0.36], [3.4, 0.94, 0.7], null, true, true, WF);
     add(boxGeo, K.stainless, [-18.2, 1.2, 0.03], [3.4, 0.5, 0.02], null, false, false, WF);
-
-    // free-standing notice wall in the middle of the hall: notice board facing the entrance,
-    // Questions and Ideas on the back
-    const NZ = 7;
-    add(boxGeo, M.graphite, [0, 1.9, NZ], [10.4, 3.8, 0.3], null, true, true);
-    add(boxGeo, M.graphite, [0, 4.25, NZ], [10.4, 0.9, 0.34], null, true);
-    add(boxGeo, M.blue, [0, 3.77, NZ + 0.18], [10.4, 0.04, 0.02]);
-    add(boxGeo, M.blue, [0, 3.77, NZ - 0.18], [10.4, 0.04, 0.02]);
-    const title = el('a-entity', { id: 'roomTitle3d', position: `0 4.25 ${NZ + 0.18}` }, root);
-    title.setAttribute('text', { value: 'EXHIBITION HALL', align: 'center', color: '#ffffff', width: 9, wrapCount: 30 });
-    const nb = surface(root, `0 1.85 ${NZ + 0.17}`, 9.6, 3.1, 0.04, M.felt, 'clickable pinnable');
-    nb.id = 'noticeBoard';
-    txt(root, `0 3.55 ${NZ + 0.2}`, 'Notice board', 4.5, C3D.graphite, 24);
-    for (const [x, name] of [[2.45, 'Questions'], [-2.45, 'Ideas']]) {
-      surface(root, `${x} 1.85 ${NZ - 0.17}`, 4.6, 3.1, 0.04, M.feltSm, 'clickable pinnable');
-      txt(root, `${x} 3.55 ${NZ - 0.2}`, name, 3.6, C3D.graphite, 18, 180);
-    }
-    txt(root, `0 4.25 ${NZ - 0.18}`, 'Questions and ideas', 7, '#ffffff', 30, 180);
-    floorDecal(L.T.contact(), 0, NZ, 13, 3.4, 0, 0.75, 0.011);
 
     // booths: oak floor, lit back wall, side panels, sign, three track lights, a plinth for the
     // model, and a "+ Add file" sign at the entrance of the booth
