@@ -25,6 +25,7 @@ A multi-user VR space that runs in the browser. Create as many rooms as you need
 - **Avatar customization**: shirt color, skin tone, round or square head, headwear (hard hat in yellow, white or orange, cap, beanie, headphones), glasses or safety glasses, and a hi-vis vest. Set it in the lobby (**Customize**) or in a room (tap the room name, then **Customize avatar**); everyone sees changes right away.
 - **Sticky notes**: six colors, up to 280 characters, +1 votes, edit and delete your own. Notes placed on a model move and scale with it. Notes placed on a PDF belong to that page and only show on that page.
 - **Voice chat**: peer-to-peer audio (WebRTC). Voices fade with distance and a green ring shows who is talking.
+- **Webcam**: press **Camera** in the bottom bar to share your webcam. Everyone in the room sees your picture on a small screen floating above your avatar (it always turns to face them), and you get a small preview at the top left. Press again to stop. The camera is off when you join, and the People panel shows who has it on. Video is kept small (320 x 240, about 15 frames a second) so it works on phones. Headsets without a front camera (Quest) can still see other people's cameras.
 - **Export**: the room panel has **Download notes (CSV)** with text, author, votes, timestamps, what the note is on (room, model, or PDF and page) and position.
 
 ## Getting Revit content in
@@ -79,7 +80,7 @@ Voice is peer-to-peer. On most networks that works with STUN. Some institutional
 ICE_SERVERS=[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:turn.example.com:443?transport=tcp","username":"USER","credential":"PASS"}]
 ```
 
-Voice uses a full mesh (everyone sends audio to everyone), which works well for about 8 people talking.
+Voice and video use a full mesh (everyone sends directly to everyone). Voice works well for about 8 people. Each camera that is on costs every other person about 0.2 Mbit/s to download and its owner about 0.2 Mbit/s per viewer to upload, so with cameras on keep it to about 6 to 8 people, or ask only presenters to turn theirs on. The same TURN note above applies to video.
 
 ## Good to know
 

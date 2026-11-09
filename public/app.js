@@ -248,7 +248,7 @@
     ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(ROOM)}`);
     ws.onopen = () => {
       reconnectDelay = 1000;
-      send({ type: 'hello', name: me.name, color: me.avatar.shirt, avatar: me.avatar, device: DEVICE, muted: me.muted, key: KEY, admin: ADMIN || undefined });
+      send({ type: 'hello', name: me.name, color: me.avatar.shirt, avatar: me.avatar, device: DEVICE, muted: me.muted, cam: !!me.cam, key: KEY, admin: ADMIN || undefined });
     };
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
@@ -492,6 +492,7 @@
       for (const y of [-0.45, -0.6]) avMesh(B, AVG.ring, stripe, [0, y, 0], [0.172, 0.172, 0.2], [Math.PI / 2, 0, 0]);
     }
     p.el.querySelector('.av-tag').object3D.position.y = a.hat === 'none' ? 0.34 : 0.4;
+    placeCamScreen(p);
   }
 
   function addPeer(info) {
@@ -501,6 +502,7 @@
     el('a-entity', { class: 'av-head' }, root);
     el('a-entity', { class: 'av-body' }, root);
     const tag = el('a-entity', { class: 'av-tag', billboard: '', position: '0 0.36 0' }, root);
+    el('a-entity', { class: 'av-cam', billboard: '', position: '0 0.66 0', visible: 'false' }, root);
     const bg = el('a-plane', { class: 'av-tagbg', width: 0.6, height: 0.11 }, tag);
     bg.setAttribute('material', { color: '#1b1f27', shader: 'flat', opacity: 0.8, transparent: true });
     const name = el('a-entity', { class: 'av-name', position: '0 0 0.002' }, tag);
@@ -520,6 +522,7 @@
     if (!p) return;
     Object.assign(p.info, info);
     buildAvatar(p);
+    updateCamScreen(p);
     const label = font3d(p.info.name + (p.info.muted ? '  (muted)' : ''));
     p.el.querySelector('.av-name').setAttribute('text', { value: label });
     p.el.querySelector('.av-tagbg').setAttribute('width', Math.max(0.3, label.length * 0.034 + 0.08));
@@ -566,6 +569,8 @@
     if (!p) return;
     if (p.pc) try { p.pc.close(); } catch (e) { /* ignore */ }
     if (p.audio) { p.audio.srcObject = null; p.audio.remove(); }
+    if (p.video) { p.video.srcObject = null; p.video.remove(); }
+    if (p.camMesh) { p.camMesh.tex.dispose(); p.camMesh.screen.material.dispose(); }
     if (p.el.parentNode) p.el.parentNode.removeChild(p.el);
     peers.delete(id);
     refreshPanel('people');
@@ -657,7 +662,10 @@
     const pc = new RTCPeerConnection({ iceServers: config.iceServers });
     peer.pc = pc;
     pc.onicecandidate = (e) => { if (e.candidate) send({ type: 'signal', to: id, data: { candidate: e.candidate.toJSON() } }); };
-    pc.ontrack = (e) => attachAudio(id, e.streams[0] || new MediaStream([e.track]));
+    pc.ontrack = (e) => {
+      if (e.track.kind === 'video') attachVideo(id, e.track);
+      else attachAudio(id, new MediaStream([e.track]));
+    };
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'failed' && me.id < id) {
         try { pc.restartIce(); } catch (e) { /* older browser */ }
@@ -674,6 +682,8 @@
     const peer = peers.get(id);
     peer.transceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
     if (localTrack) await peer.transceiver.sender.replaceTrack(localTrack);
+    peer.videoTx = pc.addTransceiver('video', { direction: 'sendrecv' }); // camera goes here when switched on
+    if (localVideoTrack) await setVideoSender(peer.videoTx.sender, localVideoTrack);
     await makeOffer(id);
   }
 
@@ -702,6 +712,12 @@
             peer.transceiver = tr;
             if (localTrack) await tr.sender.replaceTrack(localTrack);
           }
+          const vt = pc.getTransceivers().find((t) => t.receiver && t.receiver.track && t.receiver.track.kind === 'video');
+          if (vt) {
+            vt.direction = 'sendrecv';
+            peer.videoTx = vt;
+            if (localVideoTrack) await setVideoSender(vt.sender, localVideoTrack);
+          }
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           send({ type: 'signal', to: from, data: { sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } } });
@@ -713,6 +729,115 @@
         else peer.pending.push(data.candidate);
       }
     } catch (e) { console.warn('signal error', e); }
+  }
+
+  // ---------------- webcam ----------------
+  // Off by default. Small and light: 320x240 at about 15 fps, capped at ~180 kbps per person.
+  let localVideoTrack = null;
+  me.cam = false;
+  async function setVideoSender(sender, track) {
+    try { await sender.replaceTrack(track); } catch (e) { return; }
+    if (!track) return;
+    try {
+      const params = sender.getParameters();
+      if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+      params.encodings[0].maxBitrate = 180000;
+      params.encodings[0].maxFramerate = 15;
+      await sender.setParameters(params);
+    } catch (e) { /* not supported here; the camera still works */ }
+  }
+  async function startCamera() {
+    if (localVideoTrack) return true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('This browser cannot share a camera here.', 3500); return false; }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 15, max: 20 }, facingMode: 'user' } });
+    } catch (e) {
+      toast(e && e.name === 'NotFoundError' ? 'No camera found on this device.' : 'Camera blocked. Allow it in your browser settings.', 4000);
+      return false;
+    }
+    localVideoTrack = stream.getVideoTracks()[0];
+    localVideoTrack.onended = () => { if (me.cam) setCamera(false); }; // camera unplugged or permission revoked
+    for (const p of peers.values()) if (p.videoTx) setVideoSender(p.videoTx.sender, localVideoTrack);
+    $('#selfVideo').srcObject = new MediaStream([localVideoTrack]);
+    $('#selfVideo').play().catch(() => {});
+    return true;
+  }
+  function stopCamera() {
+    for (const p of peers.values()) if (p.videoTx) p.videoTx.sender.replaceTrack(null).catch(() => {});
+    if (localVideoTrack) { localVideoTrack.onended = null; localVideoTrack.stop(); }
+    localVideoTrack = null;
+    $('#selfVideo').srcObject = null;
+  }
+  async function setCamera(on) {
+    if (on && !(await startCamera())) on = false;
+    if (!on) stopCamera();
+    me.cam = on;
+    send({ type: 'profile', cam: on });
+    const b = $('#camBtn');
+    b.classList.toggle('cam-on', on);
+    b.classList.toggle('off', !on);
+    b.setAttribute('aria-pressed', String(on));
+    b.setAttribute('aria-label', on ? 'Turn camera off' : 'Turn camera on');
+    $('#camLbl').textContent = on ? 'Cam on' : 'Camera';
+    $('#selfCam').hidden = !on;
+    if (scene.is('vr-mode')) vrToast(on ? 'Camera on' : 'Camera off', 1200);
+  }
+  $('#camBtn').addEventListener('click', () => setCamera(!me.cam));
+
+  // Someone else's camera: a hidden <video> feeds a screen that floats above their avatar.
+  function attachVideo(id, track) {
+    const peer = peers.get(id);
+    if (!peer) return;
+    if (!peer.video) {
+      peer.video = el('video', { muted: '', playsinline: '', autoplay: '' }, $('#videoBin'));
+      peer.video.muted = true;
+      peer.video.addEventListener('resize', () => sizeCamScreen(peer));
+      peer.video.addEventListener('loadedmetadata', () => sizeCamScreen(peer));
+    }
+    peer.videoTrack = track;
+    peer.video.srcObject = new MediaStream([track]);
+    peer.video.play().catch(() => blockedAudio.add(peer.video));
+    track.onunmute = () => updateCamScreen(peer);
+    track.onmute = () => updateCamScreen(peer);
+    buildCamScreen(peer);
+    updateCamScreen(peer);
+  }
+  function buildCamScreen(peer) {
+    if (peer.camMesh) return;
+    const holder = peer.el.querySelector('.av-cam').object3D;
+    const tex = new THREE.VideoTexture(peer.video);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const g = new THREE.Group();
+    const frame = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: '#262b33', toneMapped: false }));
+    frame.position.z = -0.002;
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
+    g.add(frame); g.add(screen);
+    holder.add(g);
+    peer.camMesh = { g, frame, screen, tex };
+    sizeCamScreen(peer);
+  }
+  function sizeCamScreen(peer) {
+    if (!peer.camMesh) return;
+    const v = peer.video;
+    const aspect = v && v.videoWidth ? v.videoHeight / v.videoWidth : 0.75;
+    const w = 0.56, h = w * aspect;
+    peer.camMesh.screen.scale.set(w, h, 1);
+    peer.camMesh.frame.scale.set(w + 0.025, h + 0.025, 1);
+    peer.camH = h;
+    placeCamScreen(peer);
+  }
+  function placeCamScreen(peer) {
+    const tag = peer.el.querySelector('.av-tag');
+    const camEl = peer.el.querySelector('.av-cam');
+    if (!tag || !camEl) return;
+    camEl.object3D.position.y = tag.object3D.position.y + 0.075 + (peer.camH || 0.42) / 2;
+  }
+  function updateCamScreen(peer) {
+    const camEl = peer.el.querySelector('.av-cam');
+    if (!camEl) return;
+    const on = !!(peer.info.cam && peer.videoTrack && peer.videoTrack.readyState === 'live' && !peer.videoTrack.muted && peer.camMesh);
+    camEl.object3D.visible = on;
   }
 
   function attachAudio(id, stream) {
@@ -2021,8 +2146,8 @@
         el('span', {}, li).textContent = name;
         el('span', { class: 'tag' }, li).textContent = tag;
       };
-      row(me.name + ' (you)', me.avatar.shirt, `${DEVICE} · ${me.muted ? 'muted' : 'mic on'}`);
-      for (const p of peers.values()) row(p.info.name, p.info.color, `${p.info.device} · ${p.info.muted ? 'muted' : 'mic on'}`);
+      row(me.name + ' (you)', me.avatar.shirt, `${DEVICE} · ${me.muted ? 'muted' : 'mic on'}${me.cam ? ' · camera on' : ''}`);
+      for (const p of peers.values()) row(p.info.name, p.info.color, `${p.info.device} · ${p.info.muted ? 'muted' : 'mic on'}${p.info.cam ? ' · camera on' : ''}`);
       el('p', { class: 'fine' }, body).textContent = `${notes.size} sticky note${notes.size === 1 ? '' : 's'} and ${items.size} object${items.size === 1 ? '' : 's'} in this room.`;
       if (window.VSNLook) {
         const gfx = el('div', { class: 'gfx' }, body);
@@ -2126,6 +2251,7 @@
         <h4>Leave a note</h4><p>Tap, click, point at, or gaze at a pin board, a model, or a PDF page. Notes on a model move with it. Notes on a PDF belong to the page they were placed on. Tap a note to vote (+1), edit, or delete it.</p>
         <h4>Models and documents</h4><p>Use the upload button to add a .glb, .gltf or .obj model, or a PDF. Open <b>Objects</b> to move, turn, resize or delete them. Turn PDF pages with the buttons under the page.</p>
         <h4>Move</h4><p>Phone and tablet: left stick to move, right stick to look around, or turn your phone to look (the phone button at the top switches this off). Computer: WASD or arrow keys, drag to look, Q / E to turn. Headset: left stick walks, right stick turns, or point at the floor and pull the trigger.</p>
+        <h4>Camera</h4><p>Tap <b>Camera</b> in the bottom bar to share your webcam. Your picture appears on a small screen above your avatar for everyone in the room, and a preview shows top left. Tap it again to stop. It is off when you join.</p>
         <h4>Talk</h4><p>Use the mic button (or A / X on a Quest controller). Voices are louder when people stand closer. A green ring shows who is talking.</p>
         <h4>Fly</h4><p>Press <b>Fly</b> to float freely: you move in the direction you look, including up and down. Computer: WASD, Space to rise, Shift to sink, F to toggle. Phone: the left stick flies where you look, hold the arrow buttons to rise or sink. Headset: left stick flies where you look, right stick up / down rises and sinks, B or Y toggles. Cardboard: turn Fly on before entering VR, then aim at the sky and press the button. On a computer or in VR, click or aim at the floor to land; turning Fly off always brings you down.</p>
         <h4>Room shortcuts</h4><p>In <b>Objects</b>, choose <b>Add room shortcut</b> to create a new room (or link an existing one). A doorway appears in front of you. Go through it by tapping, clicking, or pointing at it. You stay in VR when you switch rooms.</p>
@@ -2589,7 +2715,7 @@
   $('#shareBtn').addEventListener('click', showShare);
   $('#peopleBtn').addEventListener('click', showPeople);
   $('#helpBtn').addEventListener('click', showHelp);
-  window.addEventListener('pagehide', () => { joined = false; if (ws) ws.close(); });
+  window.addEventListener('pagehide', () => { joined = false; stopCamera(); if (ws) ws.close(); });
   window.addEventListener('pageshow', (e) => { if (e.persisted) location.reload(); });
 
   async function boot() {

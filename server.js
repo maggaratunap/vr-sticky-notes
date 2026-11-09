@@ -165,7 +165,7 @@ function broadcast(room, msg, exceptId) {
 }
 function publicPeer(ws) {
   const u = ws.user;
-  return { id: u.id, name: u.name, color: u.avatar.shirt, avatar: u.avatar, device: u.device, muted: u.muted, p: u.p, q: u.q };
+  return { id: u.id, name: u.name, color: u.avatar.shirt, avatar: u.avatar, device: u.device, muted: u.muted, cam: !!u.cam, p: u.p, q: u.q };
 }
 function noteFor(key, admin, n) {
   const { authorKey, votes, ...rest } = n;
@@ -510,6 +510,7 @@ wss.on('connection', (ws, req) => {
         avatar: cleanAvatar(m.avatar, pickColor(m.color, USER_COLORS, USER_COLORS[room.clients.size % USER_COLORS.length])),
         device: cleanText(m.device, 12) || 'desktop',
         muted: m.muted !== false,
+        cam: m.cam === true,
         isAdmin: isAdmin(m.admin),
         p: [0, 1.6, 4], q: [0, 0, 0, 1]
       };
@@ -537,6 +538,7 @@ wss.on('connection', (ws, req) => {
       }
       case 'profile': {
         if (typeof m.muted === 'boolean') u.muted = m.muted;
+        if (typeof m.cam === 'boolean') u.cam = m.cam;
         if (m.name != null) u.name = cleanText(m.name, 24) || u.name;
         if (m.avatar != null) u.avatar = cleanAvatar(m.avatar, u.avatar.shirt);
         broadcast(room, { type: 'peer-update', peer: publicPeer(ws) }, u.id);

@@ -342,3 +342,13 @@ body.sheet-open .a-enter-vr { display: none !important; }
   .adjust .actions { margin-top: 8px; }
   .adjust .actions .btn { min-height: 42px; }
 }
+
+/* Webcam: your own picture (mirrored) and the hidden players that feed the 3D screens */
+.self-cam { position: absolute; top: calc(60px + var(--safe-t)); left: 12px; margin: 0; width: 112px; border-radius: 14px; overflow: hidden; background: var(--graphite); box-shadow: var(--shadow); border: 2px solid rgba(255, 255, 255, 0.85); pointer-events: none; }
+.self-cam video { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; transform: scaleX(-1); }
+.self-cam figcaption { position: absolute; left: 6px; bottom: 5px; font-size: 0.68rem; font-weight: 700; color: #fff; background: rgba(38, 43, 51, 0.7); padding: 1px 6px; border-radius: 6px; }
+@media (max-width: 520px) { .self-cam { width: 88px; } }
+#videoBin { position: fixed; left: 0; top: 0; width: 2px; height: 2px; overflow: hidden; opacity: 0.01; pointer-events: none; z-index: -1; }
+#videoBin video { width: 2px; height: 2px; }
+.dock-btn.cam-on .dock-ico { background: var(--blueprint-wash); color: var(--blueprint-ink); }
+.dock-btn.cam-on .dock-lbl { color: var(--blueprint-ink); }

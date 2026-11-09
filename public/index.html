@@ -124,6 +124,7 @@
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5"/></symbol>
   <symbol id="i-avatar" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20.5c.6-4 3.6-6.5 7.5-6.5s6.9 2.5 7.5 6.5"/></symbol>
   <symbol id="i-gyro" viewBox="0 0 24 24"><rect x="7.5" y="3" width="9" height="18" rx="2.2"/><path d="M11 18h2M3.5 9.5a8.5 8.5 0 0 0 0 5M20.5 9.5a8.5 8.5 0 0 1 0 5"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><rect x="3" y="6.5" width="13" height="11" rx="2.5"/><path d="M16 10.5 21 7.5v9l-5-3"/></symbol>
   <symbol id="i-up" viewBox="0 0 24 24"><path d="M6 14.5 12 8.5l6 6"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
 </svg>
@@ -141,6 +142,7 @@
   </div>
   <nav class="dock" aria-label="Actions">
     <button id="micBtn" class="dock-btn" aria-label="Microphone"><span class="dock-ico"><svg class="ico"><use href="#i-mic"/></svg><svg class="ico slash"><use href="#i-slash"/></svg><span class="meter" id="micMeter"></span></span><span class="dock-lbl" id="micLbl">Mic</span></button>
+    <button id="camBtn" class="dock-btn off" aria-label="Turn camera on" aria-pressed="false"><span class="dock-ico"><svg class="ico"><use href="#i-cam"/></svg><svg class="ico slash"><use href="#i-slash"/></svg></span><span class="dock-lbl" id="camLbl">Camera</span></button>
     <button id="addBtn" class="dock-btn add" aria-label="Add a sticky note"><span class="dock-ico"><svg class="ico"><use href="#i-note"/></svg></span><span class="dock-lbl">Note</span></button>
     <button id="uploadBtn" class="dock-btn" aria-label="Upload a model or PDF"><span class="dock-ico"><svg class="ico"><use href="#i-upload"/></svg></span><span class="dock-lbl">Upload</span></button>
     <button id="flyBtn" class="dock-btn fly" aria-label="Fly mode" aria-pressed="false"><span class="dock-ico"><svg class="ico"><use href="#i-fly"/></svg></span><span class="dock-lbl">Fly</span></button>
@@ -152,7 +154,9 @@
   <div id="joystick" class="joystick" role="application" aria-label="Move: drag to walk" hidden><span class="stick-label">Move</span><div class="joy-knob"></div></div>
   <div id="lookStick" class="joystick" role="application" aria-label="Look: drag to look around" hidden><span class="stick-label">Look</span><div class="joy-knob"></div></div>
   <div id="crosshair"></div>
+  <figure id="selfCam" class="self-cam" hidden><video id="selfVideo" muted playsinline autoplay></video><figcaption>You</figcaption></figure>
 </div>
+<div id="videoBin" aria-hidden="true"></div>
 
 <!-- Composer -->
 <div id="composer" class="overlay sheet-wrap" hidden>
