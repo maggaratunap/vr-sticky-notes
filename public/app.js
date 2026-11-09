@@ -219,6 +219,7 @@
     ROOM = selectedRoom.slug;
     const u = new URL(location.href); u.searchParams.set('room', ROOM); history.replaceState(null, '', u);
     unlockAudio();
+    if (TOUCH_UI && gyroOn) requestGyroPermission(); // must come straight from the Join tap on iPhone
     if (withMic) {
       $('#lobbyMsg').textContent = 'Asking for microphone access...';
       const ok = await startMic();
@@ -231,10 +232,10 @@
     joined = true;
     updateMicUI();
     placeAtSpawn();
-    if (TOUCH_UI) showJoystick(true);
+    setupTouchControls();
     connect();
     startPoseLoop();
-    if (TOUCH_UI) toast('Use the joystick to walk and drag to look around. Tap a board, model or PDF to leave a note.', 4600);
+    if (TOUCH_UI) toast('Left stick to move. Right stick or turn your phone to look around. Tap a board, model or PDF to interact.', 5200);
     else if (DEVICE === 'desktop') toast('Drag to look, WASD to move. Click a board, model or PDF to leave a note.', 4200);
     else toast('Press VR to enter. Point and pull the trigger to leave a note.', 4200);
   }
@@ -1007,6 +1008,7 @@
   // Tap / click / aim at the floor or a plinth to walk there.
   function onFloorClick(e) {
     if (fromDrag(e)) return;
+    if (TOUCH_UI && !scene.is('vr-mode')) return; // phones and tablets move with the sticks
     const hit = e.detail && e.detail.intersection;
     if (hit) $('#rig').components['rig-move'].glideTo(hit.point.x, hit.point.z, hit.point.y);
   }
@@ -2123,9 +2125,9 @@
       body.innerHTML = `
         <h4>Leave a note</h4><p>Tap, click, point at, or gaze at a pin board, a model, or a PDF page. Notes on a model move with it. Notes on a PDF belong to the page they were placed on. Tap a note to vote (+1), edit, or delete it.</p>
         <h4>Models and documents</h4><p>Use the upload button to add a .glb, .gltf or .obj model, or a PDF. Open <b>Objects</b> to move, turn, resize or delete them. Turn PDF pages with the buttons under the page.</p>
-        <h4>Move</h4><p>Phone and tablet: push the joystick at the bottom right to walk (drag the view with another finger to look around at the same time), or tap the floor to walk there. Computer: WASD or arrow keys, drag to look, Q / E to turn. Headset: left stick walks, right stick turns, or point at the floor and pull the trigger.</p>
+        <h4>Move</h4><p>Phone and tablet: left stick to move, right stick to look around, or turn your phone to look (the phone button at the top switches this off). Computer: WASD or arrow keys, drag to look, Q / E to turn. Headset: left stick walks, right stick turns, or point at the floor and pull the trigger.</p>
         <h4>Talk</h4><p>Use the mic button (or A / X on a Quest controller). Voices are louder when people stand closer. A green ring shows who is talking.</p>
-        <h4>Fly</h4><p>Press <b>Fly</b> to float freely: you move in the direction you look, including up and down. Computer: WASD, Space to rise, Shift to sink, F to toggle. Phone: tap the sky to fly toward it, hold the arrow buttons to rise or sink. Headset: left stick flies where you look, right stick up / down rises and sinks, B or Y toggles. Cardboard: turn Fly on before entering VR, then aim at the sky and press the button. Tap or aim at the floor to land; turning Fly off brings you down.</p>
+        <h4>Fly</h4><p>Press <b>Fly</b> to float freely: you move in the direction you look, including up and down. Computer: WASD, Space to rise, Shift to sink, F to toggle. Phone: the left stick flies where you look, hold the arrow buttons to rise or sink. Headset: left stick flies where you look, right stick up / down rises and sinks, B or Y toggles. Cardboard: turn Fly on before entering VR, then aim at the sky and press the button. On a computer or in VR, click or aim at the floor to land; turning Fly off always brings you down.</p>
         <h4>Room shortcuts</h4><p>In <b>Objects</b>, choose <b>Add room shortcut</b> to create a new room (or link an existing one). A doorway appears in front of you. Go through it by tapping, clicking, or pointing at it. You stay in VR when you switch rooms.</p>
         <h4>VR</h4><p>Press the VR button at the bottom right. In Cardboard, aim the ring in the middle of your view and press the Cardboard button: on the floor to walk there, on a surface to leave a note, or on a button or doorway to use it. Turn by turning your head.</p>`;
     });
@@ -2392,7 +2394,7 @@
     if (!on) msg = 'Landing. Fly mode off.';
     else if (scene.is('vr-mode') && gazeMode) msg = 'Flying: aim up or ahead and press the button to fly there. Aim at the floor to land.';
     else if (scene.is('vr-mode') || DEVICE === 'headset') msg = 'Flying: left stick moves where you look, right stick up/down rises and sinks. B or Y to land.';
-    else if (TOUCH_UI) msg = 'Flying: the joystick moves you where you look. Hold the arrows to rise or sink, tap the floor to land.';
+    else if (TOUCH_UI) msg = 'Flying: the left stick moves you where you look. Hold the arrows to rise or sink. Turn Fly off to land.';
     else msg = 'Flying: WASD moves where you look, Space rises, Shift sinks, click the floor to land. F toggles flying.';
     toast(msg, on ? 5000 : 1800);
   }
@@ -2410,47 +2412,80 @@
   });
   ['#leftHand', '#rightHand'].forEach((s) => ['bbuttondown', 'ybuttondown'].forEach((ev) => $(s).addEventListener(ev, () => setFly(!flying))));
 
-  // ---------------- on-screen joystick (phones and tablets, outside VR) ----------------
+  // ---------------- dual sticks (phones and tablets, outside VR) ----------------
+  // Left stick moves, right stick looks around; turning the phone (gyroscope) also looks around.
+  // Tap-to-walk is off on these devices, so taps only ever select boards, notes, models and PDFs.
   const TOUCH_UI = DEVICE === 'phone' || (DEVICE !== 'headset' && window.matchMedia && matchMedia('(pointer: coarse)').matches);
-  const joy = $('#joystick');
-  const knob = joy.querySelector('.joy-knob');
-  const JOY_R = 40; // how far the knob can travel, in px
-  let joyPointer = null; let joyCx = 0; let joyCy = 0;
+  function makeStick(elStick, onMove) {
+    const knob = elStick.querySelector('.joy-knob');
+    const R = 40; // how far the knob can travel, in px
+    let pid = null, cx = 0, cy = 0;
+    const move = (e) => {
+      let dx = e.clientX - cx, dy = e.clientY - cy;
+      const len = Math.hypot(dx, dy);
+      if (len > R) { dx *= R / len; dy *= R / len; }
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+      onMove(dx / R, dy / R);
+    };
+    const release = () => { pid = null; knob.style.transform = ''; elStick.classList.remove('active'); onMove(0, 0); };
+    elStick.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      pid = e.pointerId;
+      try { elStick.setPointerCapture(e.pointerId); } catch (err) { /* older browsers */ }
+      const r = elStick.getBoundingClientRect();
+      cx = r.left + r.width / 2; cy = r.top + r.height / 2;
+      elStick.classList.add('active');
+      move(e);
+    });
+    elStick.addEventListener('pointermove', (e) => { if (e.pointerId === pid) move(e); });
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((t) => elStick.addEventListener(t, (e) => { if (e.pointerId === pid) release(); }));
+    elStick.addEventListener('contextmenu', (e) => e.preventDefault());
+    return { release };
+  }
+  const moveStick = makeStick($('#joystick'), (x, y) => { if (mover()) mover().setJoystick(x, y); });
+  const lookStick = makeStick($('#lookStick'), (x, y) => { if (mover()) mover().setLook(x, y); });
   function showJoystick(on) {
-    joy.hidden = !on;
+    $('#joystick').hidden = !on;
+    $('#lookStick').hidden = !on;
     document.body.classList.toggle('has-joystick', on);
-    if (!on) releaseJoystick();
+    if (!on) { moveStick.release(); lookStick.release(); }
   }
-  function moveJoystick(e) {
-    let dx = e.clientX - joyCx; let dy = e.clientY - joyCy;
-    const len = Math.hypot(dx, dy);
-    if (len > JOY_R) { dx *= JOY_R / len; dy *= JOY_R / len; }
-    knob.style.transform = `translate(${dx}px, ${dy}px)`;
-    if (mover()) mover().setJoystick(dx / JOY_R, dy / JOY_R);
+
+  // Gyroscope: on by default; iPhones need permission, asked when you press Join.
+  let gyroOn = store.get('vsn.gyro') !== 'off';
+  async function requestGyroPermission() {
+    const DOE = window.DeviceOrientationEvent;
+    if (!DOE || typeof DOE.requestPermission !== 'function') return true; // Android and others
+    try {
+      const r = await DOE.requestPermission();
+      if (r === 'granted') { scene.emit('deviceorientationpermissiongranted'); return true; }
+    } catch (e) { /* the user said no, or it was not a tap */ }
+    return false;
   }
-  function releaseJoystick() {
-    joyPointer = null;
-    knob.style.transform = '';
-    joy.classList.remove('active');
-    if (mover()) mover().setJoystick(0, 0);
+  function setGyro(on) {
+    gyroOn = on;
+    store.set('vsn.gyro', on ? 'on' : 'off');
+    $('#cam').setAttribute('look-controls', 'magicWindowTrackingEnabled', on);
+    $('#gyroBtn').setAttribute('aria-pressed', String(on));
+    $('#gyroBtn').setAttribute('aria-label', on ? 'Turn off looking by turning your phone' : 'Look around by turning your phone');
   }
-  joy.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    joyPointer = e.pointerId;
-    try { joy.setPointerCapture(e.pointerId); } catch (err) { /* older browsers */ }
-    const r = joy.getBoundingClientRect();
-    joyCx = r.left + r.width / 2; joyCy = r.top + r.height / 2;
-    joy.classList.add('active');
-    moveJoystick(e);
+  function setupTouchControls() {
+    if (!TOUCH_UI) return;
+    $('#cam').setAttribute('look-controls', 'touchEnabled', false); // looking is the right stick and the gyroscope
+    $('#gyroBtn').hidden = false;
+    setGyro(gyroOn);
+    showJoystick(true);
+  }
+  $('#gyroBtn').addEventListener('click', async () => {
+    if (!gyroOn) await requestGyroPermission();
+    setGyro(!gyroOn);
+    toast(gyroOn ? 'Gyroscope on: turn your phone to look around.' : 'Gyroscope off: use the right stick to look around.');
   });
-  joy.addEventListener('pointermove', (e) => { if (e.pointerId === joyPointer) moveJoystick(e); });
-  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((t) => joy.addEventListener(t, (e) => { if (e.pointerId === joyPointer) releaseJoystick(); }));
-  joy.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // Flying on a phone or computer: tap or click empty sky to fly toward it.
   const skyRay = new THREE.Raycaster();
   function onSkyTap(e) {
-    if (!flying || !joined || dragged || scene.is('vr-mode')) return;
+    if (!flying || !joined || dragged || scene.is('vr-mode') || TOUCH_UI) return;
     const cur = scene.components.cursor;
     if (cur && cur.intersectedEl) return; // a surface, note or button handles its own tap
     const rect = scene.canvas.getBoundingClientRect();

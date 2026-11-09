@@ -59,7 +59,8 @@
       this.axisL = { x: 0, y: 0 };
       this.axisR = { x: 0, y: 0 };
       this.vertical = 0;
-      this.joy = { x: 0, y: 0 }; // on-screen joystick (phones and tablets)
+      this.joy = { x: 0, y: 0 };  // on-screen move stick (phones and tablets)
+      this.look = { x: 0, y: 0 }; // on-screen look stick
       this.snapReady = true;
       this.glide = null;
       this.fwd = new THREE.Vector3();
@@ -132,6 +133,7 @@
 
     // x: -1 (left) .. 1 (right), y: -1 (forward) .. 1 (back), like a thumbstick
     setJoystick: function (x, y) { this.joy.x = x; this.joy.y = y; },
+    setLook: function (x, y) { this.look.x = x; this.look.y = y; },
 
     snapTurn: function (deg) {
       const rig = this.el.object3D;
@@ -174,6 +176,17 @@
         rig.position.addScaledVector(this.fwd, f * step);
         rig.position.addScaledVector(this.right, s * step);
         rig.position.y += v * step;
+      }
+
+      // On-screen look stick: turn and tilt the view (adds to the phone's gyroscope).
+      if (Math.hypot(this.look.x, this.look.y) > 0.08 && !this.el.sceneEl.is('vr-mode')) {
+        const lc = this.data.camera.components['look-controls'];
+        if (lc) {
+          const cx = Math.sign(this.look.x) * this.look.x * this.look.x; // gentle near the centre
+          const cy = Math.sign(this.look.y) * this.look.y * this.look.y;
+          lc.yawObject.rotation.y -= cx * 2.4 * dt;
+          lc.pitchObject.rotation.x = Math.max(-1.45, Math.min(1.45, lc.pitchObject.rotation.x - cy * 1.7 * dt));
+        }
       }
 
       // Snap turn (right stick sideways, or Q / E on a keyboard).
