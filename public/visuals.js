@@ -18,7 +18,8 @@
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
   };
-  let quality = params.get('quality') || store.get('vsn.gfx') || 'detailed';
+  // Standalone headsets (Quest) start in Fast; anyone can switch to Detailed in the room menu.
+  let quality = params.get('quality') || store.get('vsn.gfx') || (AFRAME.utils.device.isMobileVR() ? 'fast' : 'detailed');
   if (quality !== 'fast') quality = 'detailed';
   const isMobile = AFRAME.utils.device.isMobile() || AFRAME.utils.device.isMobileVR();
 
@@ -231,14 +232,6 @@
       g.fillStyle = 'rgba(128,136,142,0.5)'; g.fillRect(0, S - 8, S, 8);
       return (cache.polycarb = c);
     },
-    // bar joist web (zig-zag diagonals between the chords): one 1.2 m panel per tile, white on clear
-    trussWeb() {
-      if (cache.trussWeb) return cache.trussWeb;
-      const W = 128, H = 84, c = canvas(W, H), g = c.getContext('2d');
-      g.strokeStyle = '#ffffff'; g.lineWidth = 5; g.lineCap = 'butt';
-      g.beginPath(); g.moveTo(-W / 2, 0); g.lineTo(0, H); g.lineTo(W / 2, 0); g.lineTo(W, H); g.lineTo(W * 1.5, 0); g.stroke();
-      return (cache.trussWeb = c);
-    },
     // corrugated metal roof deck seen from below: one 0.3 m flute per tile
     deck() {
       if (cache.deck) return cache.deck;
@@ -317,44 +310,6 @@
       g.fillStyle = gl; g.fillRect(0, 0, W, H);
       return (cache.labWindow = c);
     },
-    // aluminium storefront door pair with daylight outside
-    storefront() {
-      if (cache.storefront) return cache.storefront;
-      const W = 256, H = 320, c = canvas(W, H), g = c.getContext('2d');
-      g.fillStyle = '#3b4047'; g.fillRect(0, 0, W, H);
-      for (const x0 of [12, W / 2 + 4]) {
-        const w = W / 2 - 16, y0 = 12, h = H - 30;
-        const gr = g.createLinearGradient(0, y0, 0, y0 + h);
-        gr.addColorStop(0, '#d8e9f5'); gr.addColorStop(0.55, '#b8d2e4'); gr.addColorStop(0.62, '#8fae86'); gr.addColorStop(1, '#a7a59c');
-        g.fillStyle = gr; g.fillRect(x0, y0, w, h);
-        g.fillStyle = '#c4c9ce'; g.fillRect(x0 + 6, H * 0.52, w - 12, 6);
-      }
-      return (cache.storefront = c);
-    },
-    exitSign() {
-      if (cache.exitSign) return cache.exitSign;
-      const c = canvas(128, 56), g = c.getContext('2d');
-      g.fillStyle = '#f4f4f2'; g.fillRect(0, 0, 128, 56);
-      g.fillStyle = '#e0261b'; g.font = 'bold 40px Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText('EXIT', 64, 30);
-      return (cache.exitSign = c);
-    },
-    // rolling tool chest front: drawers with silver pulls
-    toolChest() {
-      if (cache.toolChest) return cache.toolChest;
-      const S = 256, c = canvas(S, S), g = c.getContext('2d');
-      g.fillStyle = '#1f2226'; g.fillRect(0, 0, S, S);
-      const rows = [0.16, 0.12, 0.12, 0.12, 0.16, 0.16, 0.16];
-      let y = 6;
-      for (const f of rows) {
-        const h = f * (S - 12);
-        g.fillStyle = '#2b2f34'; g.fillRect(6, y + 2, S - 12, h - 4);
-        g.fillStyle = '#c9ced3'; g.fillRect(16, y + 5, S - 32, 3);
-        y += h;
-      }
-      return (cache.toolChest = c);
-    },
-
     // ceiling cut-outs for skylights (white = solid, black = open)
     ceilingAlpha(openings, half) {
       const S = 512, c = canvas(S, S), g = c.getContext('2d');

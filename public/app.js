@@ -1019,6 +1019,8 @@
     };
 
     // ---- the high bay ----
+    // Kept deliberately light for standalone headsets: about a dozen materials, a few hundred
+    // simple boxes, no see-through (alpha-tested) surfaces and no thin lattice members.
     // Plane whose texture tiles every tw x th metres (so one material serves every wall).
     const tiledGeo = (w, h, tw, th, u0, v0) => {
       const g = new THREE.PlaneGeometry(w, h);
@@ -1026,47 +1028,33 @@
       for (let i = 0; i < uv.count; i++) uv.setXY(i, (u0 || 0) + uv.getX(i) * w / tw, (v0 || 0) + uv.getY(i) * h / th);
       return g;
     };
-    // A straight member from point a to point b (square section t).
+    // A straight member from point a to point b (square section t, no end faces).
     const X_AXIS = new THREE.Vector3(1, 0, 0);
-    // a box with its two end faces left out (they are never seen): 8 triangles instead of 12
     const barGeo = new THREE.BufferGeometry();
     for (const k of ['position', 'normal', 'uv']) barGeo.setAttribute(k, boxGeo.attributes[k]);
     barGeo.setIndex(new THREE.BufferAttribute(boxGeo.index.array.slice(12), 1));
-    const bar = (mat, a, b, t, parent, cast) => {
+    const bar = (mat, a, b, t, parent) => {
       const A = new THREE.Vector3(a[0], a[1], a[2]), B = new THREE.Vector3(b[0], b[1], b[2]);
       const d = B.clone().sub(A);
       const m = new THREE.Mesh(barGeo, mat);
       m.position.copy(A).add(B).multiplyScalar(0.5);
       m.scale.set(d.length(), t, t);
       m.quaternion.setFromUnitVectors(X_AXIS, d.normalize());
-      m.castShadow = !!cast;
       (parent || deco).add(m);
       return m;
     };
     const K = {
       floor: L.std({ map: L.tex(L.T.shopConcrete()), roughness: 0.38, metalness: 0 }),
-      cmu: L.std({ map: L.tex(L.T.cmu()), roughness: 0.95, emissive: new THREE.Color('#e9e8e3'), emissiveIntensity: 0.24, side: THREE.DoubleSide }),
-      // daylight glowing through the panels, and the roof deck high overhead: flat-lit (cheap to draw)
+      // matte block walls: diffuse-only lighting is cheaper and looks the same
+      cmu: new THREE.MeshLambertMaterial({ map: L.tex(L.T.cmu()), emissive: new THREE.Color('#e9e8e3'), emissiveIntensity: 0.24, side: THREE.DoubleSide }),
+      // daylight glowing through the panels, and the roof deck high overhead: flat-lit
       poly: new THREE.MeshBasicMaterial({ map: L.tex(L.T.polycarb()), color: '#f4f6f7', side: THREE.DoubleSide }),
       deck: new THREE.MeshBasicMaterial({ map: L.tex(L.T.deck()), color: '#c9cdd1', side: THREE.DoubleSide }),
-      frame: L.std({ color: '#7a2f28', roughness: 0.55, metalness: 0.25 }),
-      girder: L.std({ color: '#5f2522', roughness: 0.55, metalness: 0.25 }),
-      joist: L.std({ color: '#8b3229', roughness: 0.5, metalness: 0.25 }),
-      web: L.std({ map: L.tex(L.T.trussWeb()), color: '#8b3229', roughness: 0.5, metalness: 0.25, alphaTest: 0.45, alphaToCoverage: true, side: THREE.DoubleSide }),
-      duct: L.std({ map: L.tex(L.T.duct()), roughness: 0.36, metalness: 0.45 }),
-      galv: L.std({ color: '#b9bfc5', roughness: 0.38, metalness: 0.7 }),
-      alu: L.std({ color: '#b8bdc2', roughness: 0.35, metalness: 0.75, side: THREE.DoubleSide }),
-      conduit: L.std({ color: '#2f62c8', roughness: 0.4, metalness: 0.3 }),
-      orange: L.std({ color: '#e8792b', roughness: 0.5 }),
-      yellow: L.std({ color: '#f2c218', roughness: 0.45 }),
-      navy: L.std({ color: '#2a3245', roughness: 0.8 }),
-      black: L.std({ color: '#1c1f24', roughness: 0.6 }),
-      stainless: L.std({ color: '#c9ced3', roughness: 0.28, metalness: 0.85 }),
+      frame: new THREE.MeshLambertMaterial({ color: '#7f2f28' }),
+      duct: new THREE.MeshLambertMaterial({ map: L.tex(L.T.duct()) }),
+      navy: new THREE.MeshLambertMaterial({ color: '#2a3245' }),
       lab: new THREE.MeshBasicMaterial({ map: L.tex(L.T.labWindow()), color: '#e4e4e4', toneMapped: false }),
-      door: L.std({ map: L.tex(L.T.garageDoor()), roughness: 0.45, metalness: 0.3, emissive: new THREE.Color('#ffffff'), emissiveIntensity: 0.12, side: THREE.DoubleSide }),
-      store: L.std({ map: L.tex(L.T.storefront()), roughness: 0.25, metalness: 0.2, emissive: new THREE.Color('#ffffff'), emissiveIntensity: 0.35 }),
-      exit: new THREE.MeshBasicMaterial({ map: L.tex(L.T.exitSign()), toneMapped: false }),
-      chest: L.std({ map: L.tex(L.T.toolChest()), roughness: 0.4, metalness: 0.4 })
+      door: new THREE.MeshLambertMaterial({ map: L.tex(L.T.garageDoor()), emissive: new THREE.Color('#ffffff'), emissiveIntensity: 0.12, side: THREE.DoubleSide })
     };
 
     // sealed concrete floor (6 m pours)
@@ -1080,7 +1068,6 @@
     const DW = 10, DH = 7.6; // garage door
     skin(WL, K.cmu, -H, H, 0, 1.2, 3.2, 3.2);            // block base, translucent panels above
     skin(WL, K.poly, -H, H, 1.2, WH, 2.4, 2.4);
-    add(boxGeo, K.galv, [0, 1.22, 0.04], [2 * H, 0.05, 0.08], null, false, false, WL);
     skin(WR, K.cmu, -H, H, 0, WH, 3.2, 3.2);             // block wall
     skin(WB, K.cmu, -H, H, 0, 8.4, 3.2, 3.2);            // block wall with a translucent clerestory
     skin(WB, K.poly, -H, H, 8.4, WH, 2.4, 2.4);
@@ -1088,146 +1075,70 @@
     skin(WF, K.cmu, DW / 2, H, 0, 9, 3.2, 3.2);
     skin(WF, K.cmu, -DW / 2, DW / 2, DH, 9, 3.2, 3.2);
     skin(WF, K.poly, -H, H, 9, WH, 2.4, 2.4);
-    for (const g of [WB, WF]) add(boxGeo, K.galv, [0, g === WB ? 8.42 : 9.02, 0.04], [2 * H, 0.05, 0.08], null, false, false, g);
     const ao = L.T.aoStrip();
     floorDecal(ao, 0, -H + 0.65, 2 * H, 1.2, 0);
     floorDecal(ao, -H + 0.65, 0, 2 * H, 1.2, Math.PI / 2);
     floorDecal(ao, H - 0.65, 0, 2 * H, 1.2, -Math.PI / 2);
     floorDecal(ao, 0, H - 0.65, 2 * H, 1.2, Math.PI);
 
-    // roof: corrugated deck on red bar joists, deeper girders on the column lines
+    // roof: corrugated deck, deep girders on the column lines and slim joists between them
+    // (solid members, not lattices)
     add(tiledGeo(2 * H, 2 * H, 0.3, 4), K.deck, [0, WH, 0], null, [Math.PI / 2, 0, 0]);
     const GIRDERS = [-20, -12, -4, 4, 12, 20];
-    const JOIST_BOTTOM = 11.1, GIRDER_BOTTOM = 10.2, TOP = WH - 0.12;
-    const truss = (z, yb, mat, chord, panel, web) => {
-      add(boxGeo, mat, [0, TOP, z], [2 * H, chord, chord + 0.04]);
-      add(boxGeo, mat, [0, yb, z], [2 * H, chord, chord + 0.04]);
-      for (let x = -H; x < H - 0.01; x += panel) {
-        bar(mat, [x, yb, z], [x + panel / 2, TOP, z], web);
-        bar(mat, [x + panel / 2, TOP, z], [x + panel, yb, z], web);
-      }
-    };
-    for (const z of GIRDERS) truss(z, GIRDER_BOTTOM, K.girder, 0.18, 1.6, 0.05);
-    // bar joists: steel chords, with the thin zig-zag web drawn as a texture (cheaper, and it
-    // does not shimmer in a headset the way hundreds of thin bars do)
-    for (let z = -22; z <= 22; z += 2) {
-      if (GIRDERS.includes(z)) continue;
-      add(boxGeo, K.joist, [0, TOP, z], [2 * H, 0.08, 0.12]);
-      add(boxGeo, K.joist, [0, JOIST_BOTTOM, z], [2 * H, 0.08, 0.12]);
-      add(tiledGeo(2 * H, TOP - JOIST_BOTTOM, 1.2, TOP - JOIST_BOTTOM), K.web, [0, (TOP + JOIST_BOTTOM) / 2, z]);
-    }
-    for (let x = -21; x <= 21; x += 6) add(boxGeo, K.joist, [x, JOIST_BOTTOM, 0], [0.05, 0.05, 2 * H]); // bridging
-    for (const [z0, z1] of [[-20, -12], [12, 20]]) {                                                  // roof bracing
-      for (let x = -H; x < H; x += 12) {
-        bar(K.joist, [x, TOP - 0.05, z0], [x + 12, TOP - 0.05, z1], 0.05);
-        bar(K.joist, [x, TOP - 0.05, z1], [x + 12, TOP - 0.05, z0], 0.05);
-      }
-    }
-    const bottomAt = (z) => (GIRDERS.includes(z) ? GIRDER_BOTTOM : JOIST_BOTTOM);
+    for (const z of GIRDERS) add(boxGeo, K.frame, [0, WH - 0.5, z], [2 * H, 0.9, 0.22]);
+    for (let z = -22; z <= 22; z += 2) if (!GIRDERS.includes(z)) add(boxGeo, K.frame, [0, WH - 0.2, z], [2 * H, 0.35, 0.07]);
 
-    // maroon steel frame on the walls: wide-flange columns, girts and diagonal bracing
-    const column = (g, x) => {
-      add(boxGeo, K.frame, [x, WH / 2, 0.05], [0.32, WH, 0.025], null, true, false, g);
-      add(boxGeo, K.frame, [x, WH / 2, 0.37], [0.32, WH, 0.025], null, true, false, g);
-      add(boxGeo, K.frame, [x, WH / 2, 0.21], [0.014, WH, 0.3], null, true, false, g);
-    };
+    // maroon steel frame on the walls: columns, a girt and diagonal bracing
     const COLS = [-20, -12, -4, 4, 12, 20];
+    const column = (g, x) => add(boxGeo, K.frame, [x, WH / 2, 0.2], [0.32, WH, 0.32], null, false, false, g);
     for (const g of [WL, WR, WB]) COLS.forEach((x) => column(g, x));
-    for (const x of [-H + 0.2, H - 0.2]) { column(WL, x); column(WR, x); }
     [-20, -12, 12, 20, -(DW / 2 + 0.2), DW / 2 + 0.2].forEach((x) => column(WF, x));
-    const BR0 = 4.4, BR1 = WH - 0.5;
+    const BR0 = 4.4, BR1 = WH - 1.0;
     for (const g of [WL, WR, WB]) add(boxGeo, K.frame, [0, BR0, 0.24], [2 * H, 0.2, 0.14], null, false, false, g);
-    add(boxGeo, K.frame, [0, BR1, 0.24], [2 * H, 0.2, 0.14], null, false, false, WL);
     const xBay = (g, x0, x1, y0, y1) => { bar(K.frame, [x0, y0, 0.24], [x1, y1, 0.24], 0.13, g); bar(K.frame, [x0, y1, 0.24], [x1, y0, 0.24], 0.13, g); };
     for (const [a, b] of [[-20, -12], [-4, 4], [12, 20]]) xBay(WL, a, b, BR0, BR1);
-    [[-20, -12], [-12, -4], [-4, 4], [4, 12], [12, 20]].forEach(([a, b], i) =>
-      bar(K.frame, [a, i % 2 ? BR1 : BR0, 0.24], [b, i % 2 ? BR0 : BR1, 0.24], 0.13, WR));
-    xBay(WB, -20, -12, BR0, 8.3);
+    [[-20, -12], [-4, 4], [12, 20]].forEach(([a, b], i) => bar(K.frame, [a, i % 2 ? BR1 : BR0, 0.24], [b, i % 2 ? BR0 : BR1, 0.24], 0.13, WR));
     xBay(WF, -20, -12, 3.2, 8.9); xBay(WF, 12, 20, 3.2, 8.9);
 
-    // blue spiral ducts along both sides, with hangers, feeding an air handler at the back right
+    // blue spiral ducts along both sides
     const ductGeo = (len) => {
-      const g = new THREE.CylinderGeometry(0.5, 0.5, len, 20, 1, true);
+      const g = new THREE.CylinderGeometry(0.5, 0.5, len, 12, 1, true);
       const uv = g.attributes.uv;
       for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * len / 1.2);
       return g;
     };
-    const DY = 9.5;
-    add(ductGeo(46.6), K.duct, [-17.5, DY, 0], null, [Math.PI / 2, 0, 0]);
-    add(ductGeo(42.6), K.duct, [17.5, DY, 2.0], null, [Math.PI / 2, 0, 0]);
-    for (let z = -20; z <= 20; z += 4) for (const x of [-17.5, 17.5]) {
-      add(boxGeo, K.galv, [x, (DY + 0.5 + bottomAt(z)) / 2, z], [0.03, bottomAt(z) - DY - 0.5, 0.03]);
-    }
-    add(boxGeo, K.galv, [16.6, DY, -21.9], [6.6, 2.4, 3.8], null, true);            // air handler
-    add(boxGeo, K.black, [16.6, DY - 0.2, -19.99], [4.6, 1.2, 0.02]);               // louvre panel
-    for (let k = 0; k < 6; k++) add(boxGeo, K.galv, [16.6, DY - 0.7 + k * 0.2, -19.97], [4.5, 0.03, 0.02]);
-    add(boxGeo, K.galv, [16.6, DY + 1.2 + (bottomAt(-20) - DY - 1.2) / 2, -21.9], [0.04, bottomAt(-20) - DY - 1.2, 0.04]);
+    for (const x of [-17.5, 17.5]) add(ductGeo(47.6), K.duct, [x, 9.5, 0], null, [Math.PI / 2, 0, 0]);
 
-    // blue conduit and a junction box on the block wall
-    const pipe = new THREE.CylinderGeometry(0.035, 0.035, 1, 10);
-    for (const x of [-3.45, 12.55]) {
-      add(pipe, K.conduit, [x, 5.1, 0.45], [1, 10.2, 1], null, false, false, WR);
-      add(boxGeo, K.orange, [x, 7.6, 0.5], [0.34, 0.44, 0.18], null, false, false, WR);
-    }
-    add(pipe, K.conduit, [4.55, 10.2, 0.45], [1, 16, 1], [0, 0, Math.PI / 2], false, false, WR);
-
-    // high-bay LED lights on cables
-    const lampDome = new THREE.CylinderGeometry(0.16, 0.3, 0.24, 14, 1, true);
-    const lampCap = new THREE.CylinderGeometry(0.11, 0.16, 0.14, 10, 1, true);
-    const lampFace = new THREE.CircleGeometry(0.29, 14);
-    for (let x = -18; x <= 18; x += 6) for (let z = -18; z <= 18; z += 6) {
-      const top = bottomAt(z);
-      add(lampCap, K.alu, [x, 9.45, z]);
-      add(lampDome, K.alu, [x, 9.26, z]);
-      add(lampFace, M.led, [x, 9.16, z], null, [Math.PI / 2, 0, 0]);
-      add(boxGeo, M.graphite, [x, (9.52 + top) / 2, z], [0.012, top - 9.52, 0.012]);
+    // high-bay lights, one every 8 m
+    const lampDome = new THREE.CylinderGeometry(0.16, 0.3, 0.24, 12, 1, true);
+    const lampFace = new THREE.CircleGeometry(0.29, 12);
+    for (let x = -16; x <= 16; x += 8) for (let z = -16; z <= 16; z += 8) {
+      add(lampDome, M.steel, [x, 9.3, z]);
+      add(lampFace, M.led, [x, 9.19, z], null, [Math.PI / 2, 0, 0]);
+      add(boxGeo, M.graphite, [x, (9.42 + WH - 0.4) / 2, z], [0.015, WH - 0.4 - 9.42, 0.015]);
     }
 
     // back wall: the lab on the mezzanine looks out over the bay through a long window
     // (layers sit several centimetres apart so they never flicker against each other at a distance)
-    add(boxGeo, K.navy, [5, 7.3, 0.35], [12.4, 4.6, 0.7], null, true, true, WB);
+    add(boxGeo, K.navy, [5, 7.3, 0.35], [12.4, 4.6, 0.7], null, false, true, WB);
     add(planeGeo, K.lab, [5, 7.35, 0.76], [10.4, 2.6, 1], null, false, false, WB);
-    for (let k = 0; k <= 4; k++) add(boxGeo, K.black, [-0.2 + k * 2.6, 7.35, 0.8], [0.06, 2.66, 0.05], null, false, false, WB);
-    add(boxGeo, K.black, [5, 8.68, 0.8], [10.5, 0.06, 0.05], null, false, false, WB);
-    add(boxGeo, K.galv, [5, 6.0, 0.82], [10.6, 0.06, 0.12], null, false, false, WB);
+    for (let k = 0; k <= 4; k++) add(boxGeo, M.graphite, [-0.2 + k * 2.6, 7.35, 0.8], [0.06, 2.66, 0.05], null, false, false, WB);
+    add(boxGeo, M.graphite, [5, 8.68, 0.8], [10.5, 0.06, 0.05], null, false, false, WB);
+    add(boxGeo, M.graphite, [5, 6.02, 0.8], [10.5, 0.06, 0.05], null, false, false, WB);
     // room name on the panel under the window
     const title = el('a-entity', { id: 'roomTitle3d', position: `5 5.45 ${-H + 0.72}` }, root);
     title.setAttribute('text', { value: 'HIGH BAY', align: 'center', color: '#ffffff', width: 9, wrapCount: 34 });
 
-    // front wall: large sectional garage door with tracks and opener, bollards, a door with an
-    // exit sign, tool chests and a stainless counter
+    // front wall: large sectional garage door under a steel header
     add(planeGeo, K.door, [0, DH / 2, 0.05], [DW, DH, 1], null, false, true, WF);
-    add(boxGeo, K.frame, [0, DH + 0.2, 0.22], [DW + 0.7, 0.4, 0.32], null, true, false, WF);
-    for (const sx of [-1, 1]) {
-      const tx = sx * (DW / 2 - 0.06);
-      add(boxGeo, K.galv, [tx, DH / 2, 0.14], [0.1, DH, 0.08], null, false, false, WF);
-      bar(K.galv, [tx, DH + 0.05, 0.16], [tx, DH + 0.8, 7.2], 0.08, WF);
-      bar(K.galv, [tx, DH + 0.8, 7.2], [tx, JOIST_BOTTOM, 7.2], 0.03, WF);
-      const bol = new THREE.CylinderGeometry(0.11, 0.11, 1.1, 18);
-      add(bol, K.yellow, [sx * (DW / 2 + 0.9), 0.55, 0.6], null, null, true, false, WF);
-      add(new THREE.SphereGeometry(0.11, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), K.yellow, [sx * (DW / 2 + 0.9), 1.1, 0.6], null, null, false, false, WF);
-    }
-    add(boxGeo, M.graphite, [0, DH + 1.0, 3.8], [0.5, 0.36, 0.95], null, false, false, WF);
-    bar(K.galv, [0, DH + 0.42, 0.3], [0, DH + 0.9, 3.4], 0.06, WF);
-    bar(K.galv, [0, DH + 1.18, 3.8], [0, JOIST_BOTTOM, 3.8], 0.03, WF);
-    add(planeGeo, K.store, [9, 1.3, 0.04], [2.1, 2.6, 1], null, false, false, WF);
-    add(boxGeo, K.black, [9, 2.66, 0.06], [2.3, 0.12, 0.1], null, false, false, WF);
-    add(boxGeo, M.white, [9, 3.0, 0.08], [0.44, 0.22, 0.1], null, false, false, WF);
-    add(planeGeo, K.exit, [9, 3.0, 0.135], [0.4, 0.18, 1], null, false, false, WF);
-    for (let k = 0; k < 5; k++) {
-      const x = -8.6 - k * 1.2;
-      add(boxGeo, K.black, [x, 0.6, 0.33], [1.15, 1.08, 0.6], null, true, true, WF);
-      add(planeGeo, K.chest, [x, 0.62, 0.635], [1.12, 0.98, 1], null, false, false, WF);
-    }
-    add(boxGeo, K.stainless, [-18.2, 0.47, 0.36], [3.4, 0.94, 0.7], null, true, true, WF);
-    add(boxGeo, K.stainless, [-18.2, 1.2, 0.03], [3.4, 0.5, 0.02], null, false, false, WF);
+    add(boxGeo, K.frame, [0, DH + 0.2, 0.22], [DW + 0.7, 0.4, 0.32], null, false, false, WF);
 
     // booths: oak floor, lit back wall, side panels, sign, three track lights, a plinth for the
     // model, and a "+ Add file" sign at the entrance of the booth
     const trackHeads = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.065, 0.16, 12), M.graphite, BOOTHS.length * 3);
     const tmp = new THREE.Object3D();
-    const plinthGeo = new THREE.CylinderGeometry(PLINTH.r, PLINTH.r, PLINTH.h, 64);
-    const ringGeo = new THREE.TorusGeometry(PLINTH.r, 0.016, 8, 96);
+    const plinthGeo = new THREE.CylinderGeometry(PLINTH.r, PLINTH.r, PLINTH.h, 40);
+    const ringGeo = new THREE.TorusGeometry(PLINTH.r, 0.016, 4, 48);
     const aoM = L.decal(ao, 0.9);
     BOOTHS.forEach((b, i) => {
       const g = el('a-entity', { position: `${b.x} 0 ${b.z}`, rotation: `0 ${b.ry} 0`, class: 'booth' }, root);
