@@ -22,7 +22,7 @@
   xr-mode-ui="enabled: true"
   device-orientation-permission-ui="enabled: false"
   loading-screen="dotsColor: #2f6fc4; backgroundColor: #eef2f5"
-  fog="type: linear; color: #e3eef6; near: 46; far: 130"
+  fog="type: linear; color: #e3eef6; near: 75; far: 170"
   gltf-model="dracoDecoderPath: https://www.gstatic.com/draco/versioned/decoders/1.5.7/"
   cursor="rayOrigin: mouse; fuse: false"
   raycaster="objects: .clickable; far: 80">
@@ -32,7 +32,7 @@
   <!-- light-blue sky; app.js turns it into a soft gradient toward the horizon -->
   <a-sky id="sky" color="#aad8f7" material="fog: false; shader: flat"></a-sky>
 
-  <!-- ===== Exhibition hall (30 x 30 m), built in app.js: booths, pedestals, boards, banner ===== -->
+  <!-- ===== High bay hall (48 x 48 m, modelled on the Kemper Hall high bay), built in app.js ===== -->
   <!-- Ground. It extends past the hall so full-size models can be walked or flown around. -->
   <a-plane id="floor" class="clickable floor" rotation="-90 0 0" width="160" height="160" material="color: #cfd3d6; roughness: 1"></a-plane>
   <a-entity id="venue"></a-entity>
