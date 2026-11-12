@@ -74,7 +74,7 @@ On the free plan the server goes to sleep when nobody has visited for a while (t
 
 ### Voice on strict networks (campus Wi-Fi, some cellular)
 
-Voice is peer-to-peer. On most networks that works with STUN. Some institutional networks block it; then you need a TURN relay. Get credentials from a hosted TURN provider or run your own `coturn` server, and set:
+Voice and camera are peer-to-peer. On most networks that works with STUN. Some institutional, hotel and phone networks block it; then you need a TURN relay. You can tell when this happens: the people list shows "can't connect voice/camera" next to the person, and their camera screen says "Camera can't connect". Get credentials from a hosted TURN provider or run your own `coturn` server, and set:
 
 ```
 ICE_SERVERS=[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:turn.example.com:443?transport=tcp","username":"USER","credential":"PASS"}]

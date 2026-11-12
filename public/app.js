@@ -502,7 +502,8 @@
     el('a-entity', { class: 'av-head' }, root);
     el('a-entity', { class: 'av-body' }, root);
     const tag = el('a-entity', { class: 'av-tag', billboard: '', position: '0 0.36 0' }, root);
-    el('a-entity', { class: 'av-cam', billboard: '', position: '0 0.66 0', visible: 'false' }, root);
+    // hidden by setting object3D directly: a `visible` attribute can initialise late and hide a screen that just came on
+    el('a-entity', { class: 'av-cam', billboard: '', position: '0 0.66 0' }, root).object3D.visible = false;
     const bg = el('a-plane', { class: 'av-tagbg', width: 0.6, height: 0.11 }, tag);
     bg.setAttribute('material', { color: '#1b1f27', shader: 'flat', opacity: 0.8, transparent: true });
     const name = el('a-entity', { class: 'av-name', position: '0 0 0.002' }, tag);
@@ -570,7 +571,7 @@
     if (p.pc) try { p.pc.close(); } catch (e) { /* ignore */ }
     if (p.audio) { p.audio.srcObject = null; p.audio.remove(); }
     if (p.video) { p.video.srcObject = null; p.video.remove(); }
-    if (p.camMesh) { p.camMesh.tex.dispose(); p.camMesh.screen.material.dispose(); }
+    if (p.camMesh) { if (p.camMesh.tex) p.camMesh.tex.dispose(); p.camMesh.screen.material.dispose(); }
     if (p.el.parentNode) p.el.parentNode.removeChild(p.el);
     peers.delete(id);
     refreshPanel('people');
@@ -662,18 +663,33 @@
     const pc = new RTCPeerConnection({ iceServers: config.iceServers });
     peer.pc = pc;
     pc.onicecandidate = (e) => { if (e.candidate) send({ type: 'signal', to: id, data: { candidate: e.candidate.toJSON() } }); };
+    // Browsers can sit in "checking" for a long time before giving up, so call it after 20 s.
+    setTimeout(() => { if (peers.get(id) === peer && peer.pc === pc && !peer.everConnected) linkFailed(peer); }, 20000);
     pc.ontrack = (e) => {
       if (e.track.kind === 'video') attachVideo(id, e.track);
       else attachAudio(id, new MediaStream([e.track]));
     };
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed' && me.id < id) {
+      const st = pc.connectionState;
+      if (st === 'connected') { peer.everConnected = true; peer.linkFailed = false; }
+      if (st === 'failed') linkFailed(peer);
+      refreshPanel('people');
+      if (st === 'failed' && me.id < id) {
         try { pc.restartIce(); } catch (e) { /* older browser */ }
         makeOffer(id, true);
       }
     };
     return pc;
   }
+
+  function linkFailed(peer) {
+    peer.linkFailed = true;
+    refreshPanel('people');
+    if (peer.warnedFail) return;
+    peer.warnedFail = true;
+    toast(`Can't connect voice and camera with ${peer.info.name}. One of your networks is blocking the direct connection.`, 6000);
+  }
+  const linkDown = (p) => !!(p.pc && (p.pc.connectionState === 'failed' || (p.linkFailed && !p.everConnected)));
 
   async function callPeer(id) {
     if (!window.RTCPeerConnection) return;
@@ -790,7 +806,8 @@
     const peer = peers.get(id);
     if (!peer) return;
     if (!peer.video) {
-      peer.video = el('video', { muted: '', playsinline: '', autoplay: '' }, $('#videoBin'));
+      // no autoplay attribute: some mobile browsers pause muted autoplay videos they think are off screen
+      peer.video = el('video', { muted: '', playsinline: '' }, $('#videoBin'));
       peer.video.muted = true;
       peer.video.addEventListener('resize', () => sizeCamScreen(peer));
       peer.video.addEventListener('loadedmetadata', () => sizeCamScreen(peer));
@@ -803,20 +820,64 @@
     buildCamScreen(peer);
     updateCamScreen(peer);
   }
+  // Status cards shown on the screen until the first video frame arrives.
+  const camCards = {};
+  function camCard(kind) {
+    if (camCards[kind]) return camCards[kind];
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 192;
+    const g = c.getContext('2d');
+    g.fillStyle = '#20252d'; g.fillRect(0, 0, 256, 192);
+    g.fillStyle = kind === 'fail' ? '#ffb4a8' : '#d8dee6';
+    g.textAlign = 'center'; g.font = '600 22px system-ui, sans-serif';
+    if (kind === 'fail') { g.fillText("Camera can't", 128, 88); g.fillText('connect', 128, 116); }
+    else { g.fillText('Camera', 128, 88); g.fillText('connecting...', 128, 116); }
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    camCards[kind] = t;
+    return t;
+  }
   function buildCamScreen(peer) {
     if (peer.camMesh) return;
     const holder = peer.el.querySelector('.av-cam').object3D;
-    const tex = new THREE.VideoTexture(peer.video);
-    tex.colorSpace = THREE.SRGBColorSpace;
+    // Also refreshed on our own timer below: VideoTexture alone waits on the browser's
+    // video-frame callback, which can stop while a headset is in immersive VR.
+    const tex = peer.video ? camTexture(peer.video) : null;
     const g = new THREE.Group();
     const frame = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: '#262b33', toneMapped: false }));
     frame.position.z = -0.002;
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: camCard('wait'), toneMapped: false }));
     g.add(frame); g.add(screen);
     holder.add(g);
     peer.camMesh = { g, frame, screen, tex };
     sizeCamScreen(peer);
   }
+  function camTexture(video) {
+    const t = new THREE.VideoTexture(video);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+  function camHasFrames(peer) {
+    const v = peer.video, t = peer.videoTrack;
+    return !!(v && t && t.readyState === 'live' && !t.muted && v.readyState >= 2 && v.videoWidth > 0);
+  }
+  // ~15 fps: copy each visible camera's latest frame, or show a status card while it connects.
+  setInterval(() => {
+    for (const p of peers.values()) {
+      const m = p.camMesh;
+      if (!m || !p.el.querySelector('.av-cam').object3D.visible) continue;
+      if (m.tex && m.tex.image !== p.video) { m.tex.dispose(); m.tex = null; }
+      if (!m.tex && p.video) m.tex = camTexture(p.video);
+      if (p.video && p.video.paused && p.videoTrack) p.video.play().catch(() => {});
+      let map;
+      if (camHasFrames(p)) { map = m.tex; m.tex.needsUpdate = true; }
+      else map = camCard(linkDown(p) ? 'fail' : 'wait');
+      if (m.screen.material.map !== map) {
+        m.screen.material.map = map; m.screen.material.needsUpdate = true;
+        if (map === m.tex) sizeCamScreen(p);
+      }
+    }
+  }, 66);
   function sizeCamScreen(peer) {
     if (!peer.camMesh) return;
     const v = peer.video;
@@ -836,8 +897,10 @@
   function updateCamScreen(peer) {
     const camEl = peer.el.querySelector('.av-cam');
     if (!camEl) return;
-    const on = !!(peer.info.cam && peer.videoTrack && peer.videoTrack.readyState === 'live' && !peer.videoTrack.muted && peer.camMesh);
-    camEl.object3D.visible = on;
+    // Shown whenever they have their camera on, so a stalled connection is visible as a
+    // "connecting" card rather than nothing at all.
+    if (peer.info.cam) buildCamScreen(peer);
+    camEl.object3D.visible = !!(peer.info.cam && peer.camMesh);
   }
 
   function attachAudio(id, stream) {
@@ -2195,7 +2258,11 @@
         el('span', { class: 'tag' }, li).textContent = tag;
       };
       row(me.name + ' (you)', me.avatar.shirt, `${DEVICE} · ${me.muted ? 'muted' : 'mic on'}${me.cam ? ' · camera on' : ''}`);
-      for (const p of peers.values()) row(p.info.name, p.info.color, `${p.info.device} · ${p.info.muted ? 'muted' : 'mic on'}${p.info.cam ? ' · camera on' : ''}`);
+      const link = (p) => {
+        if (!window.RTCPeerConnection || (p.pc && p.pc.connectionState === 'connected')) return '';
+        return linkDown(p) ? " · can't connect voice/camera" : ' · connecting voice/camera';
+      };
+      for (const p of peers.values()) row(p.info.name, p.info.color, `${p.info.device} · ${p.info.muted ? 'muted' : 'mic on'}${p.info.cam ? ' · camera on' : ''}${link(p)}`);
       el('p', { class: 'fine' }, body).textContent = `${notes.size} sticky note${notes.size === 1 ? '' : 's'} and ${items.size} object${items.size === 1 ? '' : 's'} in this room.`;
       if (window.VSNLook) {
         const gfx = el('div', { class: 'gfx' }, body);
