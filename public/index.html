@@ -13,6 +13,7 @@
   <script src="/vendor/aframe.min.js"></script>
   <script src="/components.js"></script>
   <script src="/visuals.js"></script>
+  <script src="/avatar.js"></script>
 </head>
 <body>
 
@@ -217,11 +218,13 @@
       <div class="avatar-opts">
         <div class="field"><span class="label">Shirt</span><div id="avShirt" class="swatches"></div></div>
         <div class="field"><span class="label">Skin tone</span><div id="avSkin" class="swatches"></div></div>
-        <div class="field"><span class="label">Head</span><div id="avHead" class="seg"></div></div>
+        <div class="field"><span class="label">Hair colour</span><div id="avHairColor" class="swatches"></div></div>
       </div>
     </div>
+    <div class="field"><span class="label">Hair</span><div id="avHair" class="chips pick"></div></div>
     <div class="field"><span class="label">Headwear</span><div id="avHat" class="chips pick"></div></div>
     <div class="field"><span class="label">Eyewear</span><div id="avEyes" class="chips pick"></div></div>
+    <div class="field"><span class="label">Trousers</span><div id="avPants" class="swatches"></div></div>
     <label class="check switch"><input type="checkbox" id="avVest"> Hi-vis safety vest</label>
     <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button type="button" id="avSave" class="btn primary">Save avatar</button></div>
   </div>

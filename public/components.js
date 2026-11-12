@@ -221,6 +221,9 @@
   });
 
   // Smoothly moves a remote avatar toward the latest pose received.
+  // Moves someone else's avatar smoothly to its latest pose and brings the figure to life:
+  // the body turns to follow the head, the legs and arms swing while walking, the eyes
+  // blink and the mouth moves while the person talks. Parts come from avatar.js (el.avParts).
   AFRAME.registerComponent('avatar-lerp', {
     init: function () {
       this.targetP = this.el.object3D.position.clone();
@@ -229,6 +232,10 @@
       this.euler = new THREE.Euler(0, 0, 0, 'YXZ');
       this.head = null;
       this.body = null;
+      this.bodyYaw = null;
+      this.turning = false;
+      this.speed = 0; this.walk = 0; this.phase = 0; this.k = 1; this.mouth = 1;
+      this.nextBlink = 1500 + Math.random() * 4000; this.blinkEnd = 0;
     },
     setTarget: function (p, q) {
       this.targetP.fromArray(p);
@@ -237,15 +244,54 @@
     tick: function (t, dtMs) {
       const dt = Math.min(dtMs / 1000, 0.1);
       const a = 1 - Math.exp(-dt * 12);
-      this.el.object3D.position.lerp(this.targetP, a);
+      const o = this.el.object3D;
+      const px = o.position.x, pz = o.position.z;
+      o.position.lerp(this.targetP, a);
+      if (dtMs > 1) this.speed += (Math.hypot(o.position.x - px, o.position.z - pz) / (dtMs / 1000) - this.speed) * Math.min(1, dt * 8);
       this.headQ.slerp(this.targetQ, a);
       if (!this.head) this.head = this.el.querySelector('.av-head');
       if (!this.body) this.body = this.el.querySelector('.av-body');
-      if (this.head) this.head.object3D.quaternion.copy(this.headQ);
-      if (this.body) {
-        this.euler.setFromQuaternion(this.headQ);
-        this.body.object3D.rotation.set(0, this.euler.y, 0);
+      this.euler.setFromQuaternion(this.headQ);
+      const yaw = this.euler.y;
+      if (this.bodyYaw === null) this.bodyYaw = yaw;
+      // the body follows the head when it has turned far enough, or when walking
+      let d = yaw - this.bodyYaw;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      if (Math.abs(d) > 0.7 || this.speed > 0.25) this.turning = true;
+      if (this.turning) {
+        this.bodyYaw += d * (1 - Math.exp(-dt * 7));
+        if (Math.abs(d) < 0.04) this.turning = false;
       }
+      if (this.head) this.head.object3D.quaternion.copy(this.headQ);
+      if (this.body) this.body.object3D.rotation.set(0, this.bodyYaw, 0);
+
+      const P = this.el.avParts;
+      if (!P) return;
+      const y = o.position.y;
+      const grounded = y < 2.2;
+      // stretch or shorten the body so the feet meet the floor for people of any height
+      const k = grounded ? Math.max(0.6, Math.min(1.25, y / 1.6)) : 1;
+      this.k += (k - this.k) * Math.min(1, dt * 6);
+      P.body.scale.y = this.k;
+      // walking
+      this.walk += ((grounded ? Math.min(1, this.speed / 1.1) : 0) - this.walk) * Math.min(1, dt * 8);
+      this.phase += this.speed * dt * 4.6;
+      const sw = Math.sin(this.phase) * 0.55 * this.walk;
+      const hang = grounded ? 0 : 0.14;
+      P.legL.rotation.x = sw - hang; P.legR.rotation.x = -sw - hang * 0.4;
+      P.armL.rotation.x = -sw * 0.6; P.armR.rotation.x = sw * 0.6;
+      // blinking
+      if (t > this.nextBlink) { this.blinkEnd = t + 130; this.nextBlink = t + 2200 + Math.random() * 4200; }
+      P.eyes.scale.y = t < this.blinkEnd ? 0.1 : 1;
+      // talking
+      const open = this.el.avSpeaking ? 2.3 + Math.sin(t * 0.021) * 1.1 + Math.sin(t * 0.034) * 0.5 : 1;
+      this.mouth += (open - this.mouth) * Math.min(1, dt * 18);
+      P.mouth.scale.y = this.mouth;
+      // contact shadow stays on the floor and fades as the person rises
+      P.shadow.position.y = 0.03 - y;
+      P.shadow.visible = y < 5;
+      const fade = Math.max(0.35, Math.min(1, 1.9 - y / 1.9));
+      P.shadow.scale.set(fade, 1, fade);
     }
   });
 })();

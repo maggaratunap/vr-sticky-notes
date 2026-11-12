@@ -308,7 +308,7 @@
       }
       case 'speaking': {
         const p = peers.get(m.id);
-        if (p) p.el.querySelector('.av-ring').setAttribute('visible', !!m.on);
+        if (p) { p.el.querySelector('.av-ring').setAttribute('visible', !!m.on); p.el.avSpeaking = !!m.on; }
         break;
       }
       case 'note-add': addNote(m.note); break;
@@ -354,18 +354,11 @@
   }
 
   // ---------------- avatars ----------------
-  // Choices (the server checks them too): shirt colour, skin tone, head shape, headwear,
-  // eyewear and a hi-vis vest.
-  const AV = {
-    skin: ['#f6d7b8', '#e8b98f', '#c98f62', '#a46a3f', '#7a4a2a', '#4f2f1c'],
-    head: [['round', 'Round'], ['square', 'Square']],
-    hat: [['none', 'None'], ['hardhat-yellow', 'Hard hat, yellow'], ['hardhat-white', 'Hard hat, white'], ['hardhat-orange', 'Hard hat, orange'], ['cap', 'Cap'], ['beanie', 'Beanie'], ['headphones', 'Headphones']],
-    eyes: [['none', 'None'], ['glasses', 'Glasses'], ['safety', 'Safety glasses']]
-  };
-  const HAT_COLORS = { 'hardhat-yellow': '#f5c400', 'hardhat-white': '#f2f2ee', 'hardhat-orange': '#f36f21' };
-  const VEST = '#cdf23a';
+  // Choices (the server checks them too): shirt and trouser colour, skin tone, hair style
+  // and colour, headwear, eyewear and a hi-vis vest. The figure itself is built in avatar.js.
+  const AV = VSNAvatar.OPTIONS;
   function defaultAvatar() {
-    return { shirt: config.userColors[Math.floor(Math.random() * config.userColors.length)], skin: AV.skin[1], head: 'round', hat: 'none', eyes: 'none', vest: false };
+    return { shirt: config.userColors[Math.floor(Math.random() * config.userColors.length)], skin: AV.skin[1], hair: 'short', hairColor: AV.hairColor[1], pants: AV.pants[0], hat: 'none', eyes: 'none', vest: false };
   }
   function cleanAvatar(a) {
     const d = defaultAvatar();
@@ -374,7 +367,9 @@
     return {
       shirt: config.userColors.includes(a.shirt) ? a.shirt : d.shirt,
       skin: has(AV.skin, a.skin) ? a.skin : d.skin,
-      head: has(AV.head, a.head) ? a.head : 'round',
+      hair: has(AV.hair, a.hair) ? a.hair : d.hair,
+      hairColor: has(AV.hairColor, a.hairColor) ? a.hairColor : d.hairColor,
+      pants: has(AV.pants, a.pants) ? a.pants : d.pants,
       hat: has(AV.hat, a.hat) ? a.hat : 'none',
       eyes: has(AV.eyes, a.eyes) ? a.eyes : 'none',
       vest: a.vest === true
@@ -390,54 +385,10 @@
   }
   function saveAvatarLocal() { store.set('vsn.avatar', JSON.stringify(me.avatar)); }
 
-  // 2D preview (lobby and editor)
-  function renderAvatarSvg(container, a) {
-    if (!container) return;
-    const hat = a.hat, sq = a.head === 'square';
-    const shade = (hex, k) => { const n = parseInt(hex.slice(1), 16); const c = (v) => Math.max(0, Math.min(255, Math.round(v * k))); return `rgb(${c(n >> 16)},${c((n >> 8) & 255)},${c(n & 255)})`; };
-    let s = '<svg viewBox="0 0 120 150" xmlns="http://www.w3.org/2000/svg">';
-    s += '<ellipse cx="60" cy="144" rx="34" ry="4" fill="rgba(38,43,51,.15)"/>';
-    s += `<path d="M28 142 L34 92 Q60 78 86 92 L92 142 Z" fill="${a.shirt}"/>`;
-    if (a.vest) s += `<path d="M34 96 Q60 84 86 96 L89 130 L31 130 Z" fill="${VEST}"/><rect x="31.5" y="106" width="57" height="4" fill="#e6e9ec"/><rect x="31" y="118" width="58" height="4" fill="#e6e9ec"/><path d="M60 88 L60 130" stroke="${shade(VEST, 0.75)}" stroke-width="2"/>`;
-    s += `<rect x="53" y="76" width="14" height="12" rx="3" fill="${shade(a.skin, 0.9)}"/>`;
-    s += sq ? `<rect x="36" y="30" width="48" height="50" rx="10" fill="${a.skin}"/>` : `<circle cx="60" cy="54" r="26" fill="${a.skin}"/>`;
-    s += '<circle cx="51" cy="56" r="3.2" fill="#262b33"/><circle cx="69" cy="56" r="3.2" fill="#262b33"/>';
-    if (a.eyes === 'glasses') s += '<g fill="none" stroke="#262b33" stroke-width="2.2"><circle cx="51" cy="56" r="7"/><circle cx="69" cy="56" r="7"/><path d="M58 56 h4"/></g>';
-    if (a.eyes === 'safety') s += '<rect x="40" y="49" width="40" height="14" rx="6" fill="rgba(140,200,240,.55)" stroke="#262b33" stroke-width="2"/>';
-    const top = sq ? 30 : 28;
-    if (HAT_COLORS[hat]) { const c = HAT_COLORS[hat]; s += `<path d="M34 ${top + 16} Q34 ${top - 8} 60 ${top - 9} Q86 ${top - 8} 86 ${top + 16} Z" fill="${c}"/><rect x="28" y="${top + 13}" width="64" height="6" rx="3" fill="${shade(c, 0.88)}"/><rect x="57" y="${top - 8}" width="6" height="22" rx="3" fill="${shade(c, 0.9)}"/>`; }
-    if (hat === 'cap') s += `<path d="M36 ${top + 14} Q36 ${top - 6} 60 ${top - 6} Q84 ${top - 6} 84 ${top + 14} Z" fill="${shade(a.shirt, 0.8)}"/><path d="M62 ${top + 10} L96 ${top + 14} L94 ${top + 18} L62 ${top + 16} Z" fill="${shade(a.shirt, 0.65)}"/>`;
-    if (hat === 'beanie') s += `<path d="M36 ${top + 12} Q36 ${top - 14} 60 ${top - 14} Q84 ${top - 14} 84 ${top + 12} Z" fill="${shade(a.shirt, 0.75)}"/><rect x="34" y="${top + 8}" width="52" height="9" rx="4" fill="${shade(a.shirt, 0.6)}"/>`;
-    if (hat === 'headphones') s += `<path d="M34 54 Q34 ${top - 6} 60 ${top - 6} Q86 ${top - 6} 86 54" fill="none" stroke="#262b33" stroke-width="4"/><rect x="27" y="47" width="10" height="18" rx="4" fill="#262b33"/><rect x="83" y="47" width="10" height="18" rx="4" fill="#262b33"/>`;
-    s += '</svg>';
-    container.innerHTML = s;
-  }
+  // 2D portrait (lobby and editor)
+  const renderAvatarSvg = (container, a) => VSNAvatar.svg(container, a);
 
-  // 3D avatar (three.js meshes under the head and body entities)
-  const avMats = new Map();
-  function avMat(color, opts) {
-    const key = color + JSON.stringify(opts || {});
-    if (!avMats.has(key)) avMats.set(key, new THREE.MeshStandardMaterial(Object.assign({ color, roughness: 0.6, metalness: 0 }, opts || {})));
-    return avMats.get(key);
-  }
-  const AVG = {
-    sphere: new THREE.SphereGeometry(1, 24, 16),
-    dome: new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2),
-    box: new THREE.BoxGeometry(1, 1, 1),
-    cyl: new THREE.CylinderGeometry(1, 1, 1, 24),
-    torso: new THREE.CylinderGeometry(0.17, 0.15, 0.55, 24),
-    vest: new THREE.CylinderGeometry(0.178, 0.158, 0.44, 24, 1, true),
-    ring: new THREE.TorusGeometry(1, 0.06, 8, 32),
-    band: new THREE.TorusGeometry(0.17, 0.012, 8, 24, Math.PI)
-  };
-  function avMesh(parent, geo, mat, pos, scale, rot) {
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(pos[0], pos[1], pos[2]);
-    if (scale) m.scale.set(scale[0], scale[1], scale[2]);
-    if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
-    parent.add(m);
-    return m;
-  }
+  // 3D figure: meshes under the head and body entities, plus a contact shadow on the root
   function buildAvatar(p) {
     const a = cleanAvatar(p.info.avatar || { shirt: p.info.color });
     const key = JSON.stringify(a);
@@ -445,53 +396,13 @@
     p.avatarKey = key;
     const head = p.el.querySelector('.av-head').object3D;
     const body = p.el.querySelector('.av-body').object3D;
-    [head, body].forEach((g) => { [...g.children].forEach((c) => { if (c.userData.av) g.remove(c); }); });
-    const H = new THREE.Group(); H.userData.av = true; head.add(H);
-    const B = new THREE.Group(); B.userData.av = true; body.add(B);
-    const skin = avMat(a.skin), shirt = avMat(a.shirt, { roughness: 0.8 }), dark = avMat('#262b33', { roughness: 0.4 });
-    const sq = a.head === 'square';
-    // head and face (the face looks along -z, the way the person is looking)
-    if (sq) avMesh(H, AVG.box, skin, [0, 0, 0], [0.27, 0.29, 0.27]);
-    else avMesh(H, AVG.sphere, skin, [0, 0, 0], [0.155, 0.16, 0.155]);
-    const fz = sq ? -0.137 : -0.138;
-    for (const x of [-0.05, 0.05]) avMesh(H, AVG.sphere, dark, [x, 0.02, fz], [0.022, 0.024, 0.012]);
-    if (a.eyes === 'glasses') {
-      for (const x of [-0.05, 0.05]) avMesh(H, AVG.ring, dark, [x, 0.02, fz - 0.008], [0.038, 0.038, 0.038]);
-      avMesh(H, AVG.box, dark, [0, 0.022, fz - 0.008], [0.03, 0.006, 0.006]);
-    } else if (a.eyes === 'safety') {
-      avMesh(H, AVG.box, avMat('#8cc8f0', { transparent: true, opacity: 0.55, roughness: 0.1 }), [0, 0.02, fz - 0.012], [0.25, 0.07, 0.015]);
-      avMesh(H, AVG.box, dark, [0, 0.058, fz - 0.012], [0.25, 0.01, 0.018]);
-    }
-    const top = sq ? 0.145 : 0.04;
-    if (HAT_COLORS[a.hat]) {
-      const hm = avMat(HAT_COLORS[a.hat], { roughness: 0.35 });
-      avMesh(H, AVG.dome, hm, [0, top, 0], sq ? [0.19, 0.12, 0.19] : [0.17, 0.15, 0.17]);
-      avMesh(H, AVG.cyl, hm, [0, top + 0.004, 0], sq ? [0.23, 0.012, 0.23] : [0.21, 0.012, 0.21]);
-      avMesh(H, AVG.box, hm, [0, top + (sq ? 0.11 : 0.13), 0], [0.035, 0.035, sq ? 0.3 : 0.28]);
-    } else if (a.hat === 'cap') {
-      const cm = avMat(a.shirt, { roughness: 0.8 });
-      avMesh(H, AVG.dome, cm, [0, top, 0], sq ? [0.15, 0.08, 0.15] : [0.162, 0.13, 0.162]);
-      avMesh(H, AVG.box, cm, [0, top + 0.005, -0.17], [0.17, 0.012, 0.13]);
-    } else if (a.hat === 'beanie') {
-      const bm = avMat(a.shirt, { roughness: 0.95 });
-      avMesh(H, AVG.dome, bm, [0, top, 0], sq ? [0.15, 0.12, 0.15] : [0.165, 0.19, 0.165]);
-      avMesh(H, AVG.ring, bm, [0, top + 0.01, 0], sq ? [0.15, 0.15, 0.4] : [0.16, 0.16, 0.45], [Math.PI / 2, 0, 0]);
-    } else if (a.hat === 'headphones') {
-      const band = avMesh(H, AVG.band, dark, [0, 0.01, 0], sq ? [1.05, 1, 1] : [1, 1, 1]);
-      band.rotation.set(0, 0, 0);
-      for (const x of [-0.165, 0.165]) avMesh(H, AVG.cyl, dark, [x * (sq ? 1.05 : 1), 0.01, 0], [0.05, 0.04, 0.05], [0, 0, Math.PI / 2]);
-    }
-    // neck, shoulders, body, optional vest
-    avMesh(B, AVG.cyl, skin, [0, -0.2, 0], [0.055, 0.1, 0.055]);
-    avMesh(B, AVG.sphere, shirt, [0, -0.25, 0], [0.17, 0.08, 0.15]);
-    avMesh(B, AVG.torso, shirt, [0, -0.52, 0]);
-    if (a.vest) {
-      const vm = avMat(VEST, { roughness: 0.6, emissive: new THREE.Color(VEST), emissiveIntensity: 0.25, side: THREE.DoubleSide });
-      avMesh(B, AVG.vest, vm, [0, -0.5, 0]);
-      const stripe = avMat('#e6e9ec', { roughness: 0.2, metalness: 0.5 });
-      for (const y of [-0.45, -0.6]) avMesh(B, AVG.ring, stripe, [0, y, 0], [0.172, 0.172, 0.2], [Math.PI / 2, 0, 0]);
-    }
-    p.el.querySelector('.av-tag').object3D.position.y = a.hat === 'none' ? 0.34 : 0.4;
+    [head, body, p.el.object3D].forEach((g) => { [...g.children].forEach((c) => { if (c.userData.av) { g.remove(c); VSNAvatar.dispose(c); } }); });
+    const fig = VSNAvatar.build(a);
+    head.add(fig.head);
+    body.add(fig.body);
+    p.el.object3D.add(fig.shadow);
+    p.el.avParts = fig.parts;
+    p.el.querySelector('.av-tag').object3D.position.y = fig.top + 0.17;
     placeCamScreen(p);
   }
 
@@ -527,7 +438,7 @@
     const label = font3d(p.info.name + (p.info.muted ? '  (muted)' : ''));
     p.el.querySelector('.av-name').setAttribute('text', { value: label });
     p.el.querySelector('.av-tagbg').setAttribute('width', Math.max(0.3, label.length * 0.034 + 0.08));
-    if (p.info.muted) p.el.querySelector('.av-ring').setAttribute('visible', false);
+    if (p.info.muted) { p.el.querySelector('.av-ring').setAttribute('visible', false); p.el.avSpeaking = false; }
     refreshPanel('people');
   }
 
@@ -545,13 +456,15 @@
           b.onclick = () => { avDraft[key] = v; draw(); };
         });
       };
-      pick($('#avHead'), AV.head, 'head');
+      pick($('#avHair'), AV.hair, 'hair');
       pick($('#avHat'), AV.hat, 'hat');
       pick($('#avEyes'), AV.eyes, 'eyes');
       $('#avVest').checked = !!avDraft.vest;
     };
     swatches($('#avShirt'), config.userColors, avDraft.shirt, (c) => { avDraft.shirt = c; renderAvatarSvg($('#avatarPreview'), avDraft); });
     swatches($('#avSkin'), AV.skin, avDraft.skin, (c) => { avDraft.skin = c; renderAvatarSvg($('#avatarPreview'), avDraft); });
+    swatches($('#avHairColor'), AV.hairColor, avDraft.hairColor, (c) => { avDraft.hairColor = c; renderAvatarSvg($('#avatarPreview'), avDraft); });
+    swatches($('#avPants'), AV.pants, avDraft.pants, (c) => { avDraft.pants = c; renderAvatarSvg($('#avatarPreview'), avDraft); });
     $('#avVest').onchange = () => { avDraft.vest = $('#avVest').checked; renderAvatarSvg($('#avatarPreview'), avDraft); };
     draw();
     openSheet('#avatarSheet');

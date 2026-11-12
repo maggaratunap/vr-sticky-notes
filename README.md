@@ -22,7 +22,8 @@ A multi-user VR space that runs in the browser. Create as many rooms as you need
   - The **Objects** panel lists everything by booth with Go to, Adjust, page turning, Replace and Remove.
 - **Fly mode**: press **Fly** to float freely in the direction you look, over and through models. Computer: WASD, Space up, Shift down, F toggles. Phone: the left stick flies where you look, hold the arrow buttons to rise or sink. Quest: left stick flies where you look, right stick up/down rises and sinks, B or Y toggles. Cardboard: aim at the sky and press the button. Tap or aim at the floor to land.
 - **Room shortcuts**: from inside a room, open **Objects > Add room shortcut** to create a new room (or pick an existing one). A doorway appears in front of you, and the new room gets a doorway back. Walking through switches rooms without reloading, so headset users stay in VR. Deleting a room also removes doorways that point to it.
-- **Avatar customization**: shirt color, skin tone, round or square head, headwear (hard hat in yellow, white or orange, cap, beanie, headphones), glasses or safety glasses, and a hi-vis vest. Set it in the lobby (**Customize**) or in a room (tap the room name, then **Customize avatar**); everyone sees changes right away.
+- **Human-like avatars**: everyone appears as a full figure with a face, hair, arms, hands, legs and shoes. The legs and arms swing as the person walks, the eyes blink, the mouth moves while they talk, the body turns to follow the head, and a soft shadow sits under the feet. Each figure is only about 9 draw calls and 3,000 to 4,000 triangles, so a full room still runs on a Quest.
+- **Avatar customization**: shirt and trouser color, skin tone, hair style (short, medium, long, bun, ponytail, curly, bald) and hair color, headwear (hard hat in yellow, white or orange, cap, beanie, headphones, headscarf), glasses or safety glasses, and a hi-vis vest. Set it in the lobby (**Customize**) or in a room (tap the room name, then **Customize avatar**); everyone sees changes right away.
 - **Sticky notes**: six colors, up to 280 characters, +1 votes, edit and delete your own. Notes placed on a model move and scale with it. Notes placed on a PDF belong to that page and only show on that page.
 - **Voice chat**: peer-to-peer audio (WebRTC). Voices fade with distance and a green ring shows who is talking.
 - **Webcam**: press **Camera** in the bottom bar to share your webcam. Everyone in the room sees your picture on a small screen floating above your avatar (it always turns to face them), and you get a small preview at the top left. Press again to stop. The camera is off when you join, and the People panel shows who has it on. Video is kept small (320 x 240, about 15 frames a second) so it works on phones. Headsets without a front camera (Quest) can still see other people's cameras.
@@ -95,7 +96,8 @@ Voice and video use a full mesh (everyone sends directly to everyone). Voice wor
 server.js            HTTP + WebSocket server: rooms, uploads, notes, poses, voice signaling, CSV export
 public/index.html    Scene and interface
 public/app.js        Client: rooms, networking, notes, models, PDFs, avatars, voice, VR keyboard
-public/components.js A-Frame components: movement, avatar smoothing, name tags
+public/components.js A-Frame components: movement, avatar smoothing and animation, name tags
+public/avatar.js     The avatar figure (3D build and 2D portrait)
 public/visuals.js    Lighting, reflections, shadows and generated materials
 public/style.css     Interface styles
 render.yaml          One-click deploy on Render

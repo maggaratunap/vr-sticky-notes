@@ -40,8 +40,10 @@ const FORMATS = { '.glb': 'model', '.gltf': 'model', '.obj': 'model', '.pdf': 'p
 // Avatar choices (everything a viewer can pick; anything else is ignored)
 const AVATAR = {
   skin: ['#f6d7b8', '#e8b98f', '#c98f62', '#a46a3f', '#7a4a2a', '#4f2f1c'],
-  head: ['round', 'square'],
-  hat: ['none', 'hardhat-yellow', 'hardhat-white', 'hardhat-orange', 'cap', 'beanie', 'headphones'],
+  hair: ['short', 'medium', 'long', 'bun', 'ponytail', 'curly', 'none'],
+  hairColor: ['#1b1a1c', '#3b2a20', '#6b4a2f', '#a9783f', '#d8b673', '#9c3f22', '#8f9094', '#e6e3dc'],
+  pants: ['#34425a', '#23262d', '#5c6670', '#6f6a5c', '#b9a47c'],
+  hat: ['none', 'hardhat-yellow', 'hardhat-white', 'hardhat-orange', 'cap', 'beanie', 'headphones', 'headscarf'],
   eyes: ['none', 'glasses', 'safety'],
   vest: [true, false]
 };
@@ -51,7 +53,9 @@ function cleanAvatar(a, fallbackShirt) {
   return {
     shirt: pick(a.shirt, USER_COLORS, fallbackShirt),
     skin: pick(a.skin, AVATAR.skin, AVATAR.skin[1]),
-    head: pick(a.head, AVATAR.head, 'round'),
+    hair: pick(a.hair, AVATAR.hair, 'short'),
+    hairColor: pick(a.hairColor, AVATAR.hairColor, AVATAR.hairColor[1]),
+    pants: pick(a.pants, AVATAR.pants, AVATAR.pants[0]),
     hat: pick(a.hat, AVATAR.hat, 'none'),
     eyes: pick(a.eyes, AVATAR.eyes, 'none'),
     vest: a.vest === true
