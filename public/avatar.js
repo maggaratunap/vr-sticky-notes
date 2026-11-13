@@ -49,7 +49,7 @@
     'hair-bun': { ry: Math.PI / 2, w: 0.212, top: 1.088, cz: -0.014, scalp: 'top' },
     'hair-ponytail': { ry: Math.PI / 2, w: 0.228, top: 1.03, cz: -0.03, scalp: 'top' },
     'hair-curly': { w: 0.266, top: 1.052, cz: -0.012, scalp: 'curly' },
-    beard: { w: 0.172, top: 0.872, front: 0.096 },
+    beard: { w: 0.19, bottom: 0.763, front: 0.102, sy: 0.76 },
     hardhat: { w: 0.238, bottom: 0.892, cz: 0.004 },
     beanie: { w: 0.226, bottom: 0.9, cz: -0.004 },
     headphones: { w: 0.236, cy: 0.9, cz: -0.004 },
