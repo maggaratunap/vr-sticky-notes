@@ -45,6 +45,7 @@ const AVATAR = {
   pants: ['#34425a', '#23262d', '#5c6670', '#6f6a5c', '#b9a47c'],
   hat: ['none', 'hardhat-yellow', 'hardhat-white', 'hardhat-orange', 'cap', 'beanie', 'headphones', 'headscarf'],
   eyes: ['none', 'glasses', 'safety'],
+  beard: ['none', 'full'],
   vest: [true, false]
 };
 function cleanAvatar(a, fallbackShirt) {
@@ -58,6 +59,7 @@ function cleanAvatar(a, fallbackShirt) {
     pants: pick(a.pants, AVATAR.pants, AVATAR.pants[0]),
     hat: pick(a.hat, AVATAR.hat, 'none'),
     eyes: pick(a.eyes, AVATAR.eyes, 'none'),
+    beard: pick(a.beard, AVATAR.beard, 'none'),
     vest: a.vest === true
   };
 }
@@ -169,7 +171,7 @@ function broadcast(room, msg, exceptId) {
 }
 function publicPeer(ws) {
   const u = ws.user;
-  return { id: u.id, name: u.name, color: u.avatar.shirt, avatar: u.avatar, device: u.device, muted: u.muted, cam: !!u.cam, p: u.p, q: u.q };
+  return { id: u.id, name: u.name, color: u.avatar.shirt, avatar: u.avatar, device: u.device, muted: u.muted, cam: !!u.cam, p: u.p, q: u.q, s: u.s | 0 };
 }
 function noteFor(key, admin, n) {
   const { authorKey, votes, ...rest } = n;
@@ -471,7 +473,8 @@ const server = http.createServer(async (req, res) => {
     if (m !== 'GET' && m !== 'HEAD') { res.writeHead(405); return res.end(); }
     const file = path.normalize(path.join(PUBLIC_DIR, p === '/' ? 'index.html' : p));
     if (!file.startsWith(PUBLIC_DIR + path.sep)) { res.writeHead(403); return res.end(); }
-    return serveFile(res, file);
+    // avatar models (about 1 MB) are kept by the browser for a day
+    return serveFile(res, file, p.startsWith('/avatars/') ? 'public, max-age=86400' : undefined);
   } catch (e) {
     console.error(e);
     if (!res.headersSent) json(res, 500, { error: 'Server error.' });
@@ -536,8 +539,10 @@ wss.on('connection', (ws, req) => {
       case 'pose': {
         const pp = vec(m.p, 3, 500); const q = vec(m.q, 4, 2);
         if (!pp || !q) return;
-        u.p = pp; u.q = q;
-        broadcast(room, { type: 'pose', id: u.id, p: pp, q }, u.id);
+        // s: how they move (0 on the ground, 1 sprinting, 2 in the air, 3 flying), for the avatar's animation
+        const st = Number.isInteger(m.s) && m.s >= 0 && m.s <= 3 ? m.s : 0;
+        u.p = pp; u.q = q; u.s = st;
+        broadcast(room, { type: 'pose', id: u.id, p: pp, q, s: st }, u.id);
         break;
       }
       case 'profile': {

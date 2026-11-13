@@ -35,9 +35,28 @@
     }
   });
 
+  // Height of the walkable surface (floor, steps, stage, booth floors) under (x, z).
+  // Shared by your own movement and by other people's avatars.
+  const ground = { floors: null, at: 0, ray: null, from: new THREE.Vector3(), down: new THREE.Vector3(0, -1, 0) };
+  window.VSNGroundAt = function (x, z, fromY) {
+    const now = performance.now();
+    if (!ground.floors || now - ground.at > 1000) {
+      ground.floors = [...document.querySelectorAll('.floor')].map((e) => e.object3D).filter(Boolean);
+      ground.at = now;
+      if (!ground.ray) ground.ray = new THREE.Raycaster();
+    }
+    ground.ray.set(ground.from.set(x, fromY, z), ground.down);
+    ground.ray.far = fromY + 1;
+    const hit = ground.ray.intersectObjects(ground.floors, true)[0];
+    return hit ? hit.point.y : 0;
+  };
+
   // Movement for every device:
-  //  - desktop: WASD / arrow keys (relative to where you look), Q / E to turn
-  //  - headset: left thumbstick to walk, right thumbstick to snap-turn
+  //  - desktop: WASD / arrow keys (relative to where you look), Q / E to turn,
+  //    Shift to sprint, Space to jump
+  //  - headset: left thumbstick to walk (click it to sprint), right thumbstick to snap-turn
+  //    (click it to jump)
+  //  - phone: on-screen stick, plus Run and Jump buttons (setSprint / jump)
   //  - phone / Cardboard / laser: glideTo() when someone taps or aims at the floor
   // Fly mode (fly: true) removes gravity: you move where you look, including up and down,
   //  - desktop: Space rises, Shift or C sinks
@@ -45,7 +64,10 @@
   //  - phone: hold the on-screen up / down buttons (setVertical), tap the sky to fly toward it
   AFRAME.registerComponent('rig-move', {
     schema: {
-      speed: { default: 2.2 },
+      speed: { default: 1.9 },
+      sprintSpeed: { default: 4.4 },
+      jumpSpeed: { default: 3.3 },   // about 0.55 m high, 0.65 s in the air
+      gravity: { default: 9.8 },
       flySpeed: { default: 3.5 },
       bounds: { default: 9.2 },
       ceiling: { default: 60 },
@@ -63,6 +85,11 @@
       this.look = { x: 0, y: 0 }; // on-screen look stick
       this.snapReady = true;
       this.glide = null;
+      this.sprintLock = false;  // Run button (phones) or a thumbstick click (headsets)
+      this.vy = 0;              // vertical speed while jumping
+      this.onGround = true;
+      this.jumpBuffer = 0;      // seconds a jump request stays valid (a press just before landing still counts)
+      this.moving = false;      // walking or gliding this frame (for your avatar's state)
       this.fwd = new THREE.Vector3();
       this.right = new THREE.Vector3();
       this.camPos = new THREE.Vector3();
@@ -70,8 +97,11 @@
       window.addEventListener('keydown', (e) => {
         if (isTypingTarget(e.target)) return;
         this.keys[e.code] = true;
-        // keep Space from "pressing" whichever button was last tapped
-        if (this.data.fly && e.code === 'Space') e.preventDefault();
+        if (e.code === 'Space') {
+          // keep Space from "pressing" whichever button was last tapped
+          e.preventDefault();
+          if (!e.repeat && !this.data.fly) this.jump();
+        }
       });
       window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
       window.addEventListener('blur', () => { this.keys = {}; this.vertical = 0; });
@@ -79,11 +109,32 @@
       const onStick = (axis) => (e) => { axis.x = e.detail.x || 0; axis.y = e.detail.y || 0; };
       if (this.data.left) this.data.left.addEventListener('thumbstickmoved', onStick(this.axisL));
       if (this.data.right) this.data.right.addEventListener('thumbstickmoved', onStick(this.axisR));
+      // headset: click the left stick to toggle sprinting, click the right stick to jump
+      if (this.data.left) this.data.left.addEventListener('thumbstickdown', () => this.setSprint(!this.sprintLock));
+      if (this.data.right) this.data.right.addEventListener('thumbstickdown', () => this.jump());
+    },
+
+    // Ask for a jump. It happens on the next frame you are standing on something.
+    jump: function () { if (!this.data.fly) this.jumpBuffer = 0.2; },
+    setSprint: function (on) {
+      this.sprintLock = !!on;
+      this.el.emit('sprint-changed', { on: this.sprintLock });
+    },
+    isSprinting: function () {
+      const k = this.keys;
+      return !this.data.fly && (this.sprintLock || !!(k.ShiftLeft || k.ShiftRight));
+    },
+    // 0 standing or walking, 1 sprinting, 2 in the air, 3 flying (sent with your pose)
+    motionState: function () {
+      if (this.data.fly) return 3;
+      if (!this.onGround) return 2;
+      return this.moving && this.isSprinting() ? 1 : 0;
     },
 
     update: function (old) {
       // Landing: when flying is switched off, glide back down to the floor.
       if (old && old.fly && !this.data.fly) {
+        this.vy = 0; this.onGround = true;
         const from = this.el.object3D.position.clone();
         const cam = this.cameraWorld(new THREE.Vector3());
         const to = from.clone(); to.y = this.groundAt(cam.x, cam.z, from.y + 2.5);
@@ -97,18 +148,7 @@
     },
 
     // Height of the walkable surface (floor, steps, stage) under (x, z).
-    groundAt: function (x, z, fromY) {
-      const now = performance.now();
-      if (!this.floors || now - this.floorsAt > 1000) {
-        this.floors = [...document.querySelectorAll('.floor')].map((e) => e.object3D).filter(Boolean);
-        this.floorsAt = now;
-        if (!this.downRay) this.downRay = new THREE.Raycaster();
-      }
-      this.downRay.set(new THREE.Vector3(x, fromY, z), new THREE.Vector3(0, -1, 0));
-      this.downRay.far = fromY + 1;
-      const hit = this.downRay.intersectObjects(this.floors, true)[0];
-      return hit ? hit.point.y : 0;
-    },
+    groundAt: function (x, z, fromY) { return window.VSNGroundAt(x, z, fromY); },
 
     // Move the rig so the viewer's head ends up above (x, z), standing on whatever is there.
     // In fly mode this also lands you.
@@ -163,6 +203,7 @@
         if (Math.abs(this.axisR.y) > 0.4) v += -this.axisR.y;
       }
 
+      this.moving = !!(f || s) || !!this.glide;
       if (f || s || v) {
         this.glide = null;
         this.data.camera.object3D.getWorldDirection(this.fwd); // +Z of the camera entity = backwards
@@ -172,7 +213,7 @@
         flat.normalize();
         if (!fly) this.fwd.copy(flat); else this.fwd.normalize(); // flying follows your gaze up and down
         this.right.crossVectors(flat, UP).normalize();
-        const step = (fly ? this.data.flySpeed : this.data.speed) * dt;
+        const step = (fly ? this.data.flySpeed : this.isSprinting() ? this.data.sprintSpeed : this.data.speed) * dt;
         rig.position.addScaledVector(this.fwd, f * step);
         rig.position.addScaledVector(this.right, s * step);
         rig.position.y += v * step;
@@ -203,12 +244,29 @@
       }
 
       // Walking: stand on the floor, steps or stage under you (step up and down smoothly).
+      // Jumping: leave the ground at jumpSpeed and fall back under gravity.
       if (!fly && !this.glide) {
         this.cameraWorld(this.camPos);
         const ground = this.groundAt(this.camPos.x, this.camPos.z, rig.position.y + 1.2);
-        rig.position.y += (ground - rig.position.y) * Math.min(1, dt * 12);
-        if (Math.abs(ground - rig.position.y) < 0.002) rig.position.y = ground;
-      }
+        if (this.jumpBuffer > 0 && !this.onGround) this.jumpBuffer -= dt;
+        if (this.jumpBuffer > 0 && this.onGround) {
+          this.jumpBuffer = 0;
+          this.onGround = false;
+          this.vy = this.data.jumpSpeed;
+          this.el.emit('jumped');
+        }
+        if (!this.onGround) {
+          this.vy -= this.data.gravity * dt;
+          rig.position.y += this.vy * dt;
+          if (this.vy <= 0 && rig.position.y <= ground) { rig.position.y = ground; this.vy = 0; this.onGround = true; }
+        } else {
+          // walking off an edge drops you; stepping up is smooth
+          if (rig.position.y - ground > 0.35) { this.onGround = false; this.vy = 0; } else {
+            rig.position.y += (ground - rig.position.y) * Math.min(1, dt * 12);
+            if (Math.abs(ground - rig.position.y) < 0.002) rig.position.y = ground;
+          }
+        }
+      } else if (this.glide) { this.onGround = true; this.vy = 0; }
       // Stay above the floor, under the ceiling, and inside the bounds.
       rig.position.y = Math.max(0, Math.min(this.data.ceiling, rig.position.y));
       this.cameraWorld(this.camPos);
@@ -220,26 +278,27 @@
     }
   });
 
-  // Smoothly moves a remote avatar toward the latest pose received.
   // Moves someone else's avatar smoothly to its latest pose and brings the figure to life:
-  // the body turns to follow the head, the legs and arms swing while walking, the eyes
-  // blink and the mouth moves while the person talks. Parts come from avatar.js (el.avParts).
+  // the body turns to follow the head, the head looks where the person looks, and the rigged
+  // figure (avatar.js, el.avFig) stands, walks, runs, jumps or floats to match how they move.
+  // Poses carry a state: 0 on the ground, 1 sprinting, 2 in the air, 3 flying.
   AFRAME.registerComponent('avatar-lerp', {
     init: function () {
       this.targetP = this.el.object3D.position.clone();
       this.targetQ = new THREE.Quaternion();
       this.headQ = new THREE.Quaternion();
       this.euler = new THREE.Euler(0, 0, 0, 'YXZ');
-      this.head = null;
       this.body = null;
       this.bodyYaw = null;
       this.turning = false;
-      this.speed = 0; this.walk = 0; this.phase = 0; this.k = 1; this.mouth = 1;
-      this.nextBlink = 1500 + Math.random() * 4000; this.blinkEnd = 0;
+      this.speed = 0; this.k = 1; this.state = 0;
+      this.ground = 0; this.groundT = -1e9;
+      this.st = { speed: 0, state: 0, lookYaw: 0, lookPitch: 0, talk: false, t: 0 };
     },
-    setTarget: function (p, q) {
+    setTarget: function (p, q, s) {
       this.targetP.fromArray(p);
       this.targetQ.fromArray(q);
+      this.state = s | 0;
     },
     tick: function (t, dtMs) {
       const dt = Math.min(dtMs / 1000, 0.1);
@@ -249,12 +308,11 @@
       o.position.lerp(this.targetP, a);
       if (dtMs > 1) this.speed += (Math.hypot(o.position.x - px, o.position.z - pz) / (dtMs / 1000) - this.speed) * Math.min(1, dt * 8);
       this.headQ.slerp(this.targetQ, a);
-      if (!this.head) this.head = this.el.querySelector('.av-head');
       if (!this.body) this.body = this.el.querySelector('.av-body');
       this.euler.setFromQuaternion(this.headQ);
       const yaw = this.euler.y;
       if (this.bodyYaw === null) this.bodyYaw = yaw;
-      // the body follows the head when it has turned far enough, or when walking
+      // the body follows the head when it has turned far enough, or when moving
       let d = yaw - this.bodyYaw;
       d = Math.atan2(Math.sin(d), Math.cos(d));
       if (Math.abs(d) > 0.7 || this.speed > 0.25) this.turning = true;
@@ -262,36 +320,37 @@
         this.bodyYaw += d * (1 - Math.exp(-dt * 7));
         if (Math.abs(d) < 0.04) this.turning = false;
       }
-      if (this.head) this.head.object3D.quaternion.copy(this.headQ);
       if (this.body) this.body.object3D.rotation.set(0, this.bodyYaw, 0);
 
-      const P = this.el.avParts;
-      if (!P) return;
-      const y = o.position.y;
-      const grounded = y < 2.2;
-      // stretch or shorten the body so the feet meet the floor for people of any height
-      const k = grounded ? Math.max(0.6, Math.min(1.25, y / 1.6)) : 1;
-      this.k += (k - this.k) * Math.min(1, dt * 6);
-      P.body.scale.y = this.k;
-      // walking
-      this.walk += ((grounded ? Math.min(1, this.speed / 1.1) : 0) - this.walk) * Math.min(1, dt * 8);
-      this.phase += this.speed * dt * 4.6;
-      const sw = Math.sin(this.phase) * 0.55 * this.walk;
-      const hang = grounded ? 0 : 0.14;
-      P.legL.rotation.x = sw - hang; P.legR.rotation.x = -sw - hang * 0.4;
-      P.armL.rotation.x = -sw * 0.6; P.armR.rotation.x = sw * 0.6;
-      // blinking
-      if (t > this.nextBlink) { this.blinkEnd = t + 130; this.nextBlink = t + 2200 + Math.random() * 4200; }
-      P.eyes.scale.y = t < this.blinkEnd ? 0.1 : 1;
-      // talking
-      const open = this.el.avSpeaking ? 2.3 + Math.sin(t * 0.021) * 1.1 + Math.sin(t * 0.034) * 0.5 : 1;
-      this.mouth += (open - this.mouth) * Math.min(1, dt * 18);
-      P.mouth.scale.y = this.mouth;
-      // contact shadow stays on the floor and fades as the person rises
-      P.shadow.position.y = 0.03 - y;
-      P.shadow.visible = y < 5;
-      const fade = Math.max(0.35, Math.min(1, 1.9 - y / 1.9));
-      P.shadow.scale.set(fade, 1, fade);
+      const fig = this.el.avFig;
+      if (!fig || !o.visible) return;
+      // what's underneath (checked a few times a second)
+      if (t - this.groundT > 250) { this.ground = window.VSNGroundAt(o.position.x, o.position.z, o.position.y + 0.3); this.groundT = t; }
+      const h = o.position.y - this.ground;
+      // size the figure so its eyes meet the person's eyes when they stand (or sit) on the floor;
+      // in the air it keeps its size and simply rises
+      const onFloor = this.state < 2 && h < 2.4;
+      if (onFloor) this.k += (THREE.MathUtils.clamp(h / fig.eye, 0.7, 1.2) - this.k) * Math.min(1, dt * 6);
+      fig.root.scale.setScalar(this.k);
+      fig.root.position.y = -fig.eye * this.k;
+      // contact shadow on the floor, fading as the person rises
+      const lift = Math.max(0, h - fig.eye * this.k);
+      const sh = fig.shadow;
+      sh.position.y = (0.012 - lift) / this.k;
+      sh.visible = lift < 5;
+      const fade = Math.max(0.35, Math.min(1, 1 - lift / 3));
+      sh.scale.set(fade, 1, fade);
+      // look relative to the body
+      let look = yaw - this.bodyYaw;
+      look = Math.atan2(Math.sin(look), Math.cos(look));
+      const st = this.st;
+      st.speed = this.state >= 2 ? 0 : this.speed;
+      st.state = this.state;
+      st.lookYaw = look;
+      st.lookPitch = this.euler.x;
+      st.talk = !!this.el.avSpeaking;
+      st.t = t;
+      fig.update(dt, st);
     }
   });
 })();

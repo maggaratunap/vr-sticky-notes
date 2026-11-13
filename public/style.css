@@ -179,6 +179,9 @@ details.fine li { margin-bottom: 6px; }
 .has-joystick .a-enter-vr { bottom: calc(236px + var(--safe-b)) !important; right: auto !important; left: 22px !important; }
 .flypad .chip { touch-action: none; user-select: none; -webkit-user-select: none; }
 .flypad .chip.held { background: var(--blueprint); color: #fff; border-color: var(--blueprint); }
+/* Jump and Run sit where the fly arrows do (they never show at the same time) */
+.movepad .chip[aria-pressed="true"] { background: var(--blueprint); color: #fff; border-color: var(--blueprint); }
+.movepad .chip:active { background: var(--blueprint); color: #fff; border-color: var(--blueprint); }
 
 #crosshair { position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; border: 2px solid var(--blueprint); opacity: 0; transition: opacity 0.2s; }
 #crosshair.show { opacity: 1; }

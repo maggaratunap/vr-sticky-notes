@@ -236,7 +236,7 @@
     connect();
     startPoseLoop();
     if (TOUCH_UI) toast('Left stick to move. Right stick or turn your phone to look around. Tap a board, model or PDF to interact.', 5200);
-    else if (DEVICE === 'desktop') toast('Drag to look, WASD to move. Click a board, model or PDF to leave a note.', 4200);
+    else if (DEVICE === 'desktop') toast('Drag to look, WASD to move, Shift to sprint, Space to jump. Click a board, model or PDF to leave a note.', 5000);
     else toast('Press VR to enter. Point and pull the trigger to leave a note.', 4200);
   }
 
@@ -300,9 +300,9 @@
       case 'pose': {
         const p = peers.get(m.id);
         if (p) {
-          p.info.p = m.p; p.info.q = m.q;
+          p.info.p = m.p; p.info.q = m.q; p.info.s = m.s | 0;
           const c = p.el.components && p.el.components['avatar-lerp'];
-          if (c) c.setTarget(m.p, m.q);
+          if (c) c.setTarget(m.p, m.q, m.s);
         }
         break;
       }
@@ -346,9 +346,12 @@
       cam.getWorldPosition(p); cam.getWorldQuaternion(q);
       const pa = p.toArray().map((v) => +v.toFixed(3));
       const qa = q.toArray().map((v) => +v.toFixed(3));
-      const key = pa.join() + qa.join();
+      // how you are moving, so your avatar walks, runs, jumps or floats for everyone else
+      const rm = $('#rig').components['rig-move'];
+      const st = rm ? rm.motionState() : 0;
+      const key = pa.join() + qa.join() + st;
       const now = Date.now();
-      if (key !== last || now - lastSent > 3000) { send({ type: 'pose', p: pa, q: qa }); last = key; lastSent = now; }
+      if (key !== last || now - lastSent > 3000) { send({ type: 'pose', p: pa, q: qa, s: st }); last = key; lastSent = now; }
       updateVolumes(p);
     }, 100);
   }
@@ -358,7 +361,7 @@
   // and colour, headwear, eyewear and a hi-vis vest. The figure itself is built in avatar.js.
   const AV = VSNAvatar.OPTIONS;
   function defaultAvatar() {
-    return { shirt: config.userColors[Math.floor(Math.random() * config.userColors.length)], skin: AV.skin[1], hair: 'short', hairColor: AV.hairColor[1], pants: AV.pants[0], hat: 'none', eyes: 'none', vest: false };
+    return { shirt: config.userColors[Math.floor(Math.random() * config.userColors.length)], skin: AV.skin[1], hair: 'short', hairColor: AV.hairColor[1], pants: AV.pants[0], hat: 'none', eyes: 'none', beard: 'none', vest: false };
   }
   function cleanAvatar(a) {
     const d = defaultAvatar();
@@ -372,6 +375,7 @@
       pants: has(AV.pants, a.pants) ? a.pants : d.pants,
       hat: has(AV.hat, a.hat) ? a.hat : 'none',
       eyes: has(AV.eyes, a.eyes) ? a.eyes : 'none',
+      beard: has(AV.beard, a.beard) ? a.beard : 'none',
       vest: a.vest === true
     };
   }
@@ -388,20 +392,22 @@
   // 2D portrait (lobby and editor)
   const renderAvatarSvg = (container, a) => VSNAvatar.svg(container, a);
 
-  // 3D figure: meshes under the head and body entities, plus a contact shadow on the root
+  // 3D figure: the rigged avatar (avatar.js) under the body entity, which turns with the person.
+  // The models download once; anyone who joins before they arrive is built when they do.
   function buildAvatar(p) {
+    if (!VSNAvatar.ready) {
+      VSNAvatar.load().then(() => { if (peers.get(p.info.id) === p) buildAvatar(p); });
+      return;
+    }
     const a = cleanAvatar(p.info.avatar || { shirt: p.info.color });
     const key = JSON.stringify(a);
     if (p.avatarKey === key) return;
     p.avatarKey = key;
-    const head = p.el.querySelector('.av-head').object3D;
     const body = p.el.querySelector('.av-body').object3D;
-    [head, body, p.el.object3D].forEach((g) => { [...g.children].forEach((c) => { if (c.userData.av) { g.remove(c); VSNAvatar.dispose(c); } }); });
+    if (p.el.avFig) { body.remove(p.el.avFig.root); VSNAvatar.dispose(p.el.avFig); }
     const fig = VSNAvatar.build(a);
-    head.add(fig.head);
-    body.add(fig.body);
-    p.el.object3D.add(fig.shadow);
-    p.el.avParts = fig.parts;
+    body.add(fig.root);
+    p.el.avFig = fig;
     p.el.querySelector('.av-tag').object3D.position.y = fig.top + 0.17;
     placeCamScreen(p);
   }
@@ -425,7 +431,7 @@
     updatePeer(info);
     root.addEventListener('loaded', () => {
       const cur = peers.get(info.id);
-      if (cur && cur.info.p && cur.info.q) root.components['avatar-lerp'].setTarget(cur.info.p, cur.info.q);
+      if (cur && cur.info.p && cur.info.q) root.components['avatar-lerp'].setTarget(cur.info.p, cur.info.q, cur.info.s);
     }, { once: true });
   }
 
@@ -459,6 +465,7 @@
       pick($('#avHair'), AV.hair, 'hair');
       pick($('#avHat'), AV.hat, 'hat');
       pick($('#avEyes'), AV.eyes, 'eyes');
+      pick($('#avBeard'), AV.beard, 'beard');
       $('#avVest').checked = !!avDraft.vest;
     };
     swatches($('#avShirt'), config.userColors, avDraft.shirt, (c) => { avDraft.shirt = c; renderAvatarSvg($('#avatarPreview'), avDraft); });
@@ -485,6 +492,7 @@
     if (p.audio) { p.audio.srcObject = null; p.audio.remove(); }
     if (p.video) { p.video.srcObject = null; p.video.remove(); }
     if (p.camMesh) { if (p.camMesh.tex) p.camMesh.tex.dispose(); p.camMesh.screen.material.dispose(); }
+    if (p.el.avFig) { VSNAvatar.dispose(p.el.avFig); p.el.avFig = null; }
     if (p.el.parentNode) p.el.parentNode.removeChild(p.el);
     peers.delete(id);
     refreshPanel('people');
@@ -2278,7 +2286,7 @@
       body.innerHTML = `
         <h4>Leave a note</h4><p>Tap, click, point at, or gaze at a pin board, a model, or a PDF page. Notes on a model move with it. Notes on a PDF belong to the page they were placed on. Tap a note to vote (+1), edit, or delete it.</p>
         <h4>Models and documents</h4><p>Use the upload button to add a .glb, .gltf or .obj model, or a PDF. Open <b>Objects</b> to move, turn, resize or delete them. Turn PDF pages with the buttons under the page.</p>
-        <h4>Move</h4><p>Phone and tablet: left stick to move, right stick to look around, or turn your phone to look (the phone button at the top switches this off). Computer: WASD or arrow keys, drag to look, Q / E to turn. Headset: left stick walks, right stick turns, or point at the floor and pull the trigger.</p>
+        <h4>Move</h4><p>Phone and tablet: left stick to move, right stick to look around, or turn your phone to look (the phone button at the top switches this off). <b>Run</b> switches sprinting on and off and <b>Jump</b> jumps. Computer: WASD or arrow keys, drag to look, Q / E to turn, hold Shift to sprint, Space to jump. Headset: left stick walks (click it to sprint), right stick turns (click it to jump), or point at the floor and pull the trigger. Everyone sees your avatar walk, run and jump with you.</p>
         <h4>Camera</h4><p>Tap <b>Camera</b> in the bottom bar to share your webcam. Your picture appears on a small screen above your avatar for everyone in the room, and a preview shows top left. Tap it again to stop. It is off when you join.</p>
         <h4>Talk</h4><p>Use the mic button (or A / X on a Quest controller). Voices are louder when people stand closer. A green ring shows who is talking.</p>
         <h4>Fly</h4><p>Press <b>Fly</b> to float freely: you move in the direction you look, including up and down. Computer: WASD, Space to rise, Shift to sink, F to toggle. Phone: the left stick flies where you look, hold the arrow buttons to rise or sink. Headset: left stick flies where you look, right stick up / down rises and sinks, B or Y toggles. Cardboard: turn Fly on before entering VR, then aim at the sky and press the button. On a computer or in VR, click or aim at the floor to land; turning Fly off always brings you down.</p>
@@ -2543,6 +2551,7 @@
     $('#rig').setAttribute('rig-move', 'fly', on);
     $('#flyBtn').setAttribute('aria-pressed', String(on));
     $('#flyPad').hidden = !on;
+    $('#movePad').hidden = on || !document.body.classList.contains('has-joystick');
     if (!on && mover()) mover().setVertical(0);
     let msg;
     if (!on) msg = 'Landing. Fly mode off.';
@@ -2601,9 +2610,18 @@
   function showJoystick(on) {
     $('#joystick').hidden = !on;
     $('#lookStick').hidden = !on;
+    $('#movePad').hidden = !on || flying;
     document.body.classList.toggle('has-joystick', on);
     if (!on) { moveStick.release(); lookStick.release(); }
   }
+  // Run (toggle) and Jump buttons beside the look stick
+  $('#jumpBtn').addEventListener('pointerdown', (e) => { e.preventDefault(); if (mover()) mover().jump(); });
+  $('#runBtn').addEventListener('click', (e) => { e.preventDefault(); if (mover()) mover().setSprint(!mover().sprintLock); e.currentTarget.blur(); });
+  ['#jumpBtn', '#runBtn'].forEach((sel) => $(sel).addEventListener('contextmenu', (e) => e.preventDefault()));
+  $('#rig').addEventListener('sprint-changed', (e) => {
+    $('#runBtn').setAttribute('aria-pressed', String(e.detail.on));
+    if (scene.is('vr-mode')) vrToast(e.detail.on ? 'Sprinting' : 'Walking', 1200);
+  });
 
   // Gyroscope: on by default; iPhones need permission, asked when you press Join.
   let gyroOn = store.get('vsn.gyro') !== 'off';
@@ -2747,6 +2765,7 @@
   window.addEventListener('pageshow', (e) => { if (e.persisted) location.reload(); });
 
   async function boot() {
+    VSNAvatar.load(); // start downloading the avatar models while people are in the lobby
     await loadConfig();
     initLobby();
     if (scene.hasLoaded) wireScene(); else scene.addEventListener('loaded', wireScene, { once: true });
