@@ -122,6 +122,7 @@
   <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.6M12 17h.01"/></symbol>
   <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19.5c.4-3.2 2.6-5 5.5-5s5.1 1.8 5.5 5M16 5.5a3 3 0 0 1 0 6M17.5 14.6c1.8.6 3 2.3 3.3 4.9"/></symbol>
   <symbol id="i-move" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3 9.5 5.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></symbol>
+  <symbol id="i-cut" viewBox="0 0 24 24"><path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5z" stroke-dasharray="2 2"/><path d="M2.5 13.5h19M4 13.5l8-4 8 4"/></symbol>
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5"/></symbol>
   <symbol id="i-avatar" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20.5c.6-4 3.6-6.5 7.5-6.5s6.9 2.5 7.5 6.5"/></symbol>
   <symbol id="i-gyro" viewBox="0 0 24 24"><rect x="7.5" y="3" width="9" height="18" rx="2.2"/><path d="M11 18h2M3.5 9.5a8.5 8.5 0 0 0 0 5M20.5 9.5a8.5 8.5 0 0 1 0 5"/></symbol>
@@ -244,6 +245,7 @@
     <div class="menu-list">
       <button type="button" id="menuNote" class="menu-btn"><svg class="ico"><use href="#i-note"/></svg><span><b>Add sticky note here</b><small>Pins a note where you clicked</small></span></button>
       <button type="button" id="menuAdjust" class="menu-btn"><svg class="ico"><use href="#i-move"/></svg><span><b>Move, rotate or resize</b><small>Position, rotation and scale</small></span></button>
+      <button type="button" id="menuSection" class="menu-btn"><svg class="ico"><use href="#i-cut"/></svg><span><b>Section cut</b><small id="menuSectionSub">Slice it horizontally or vertically</small></span></button>
       <button type="button" id="menuReplace" class="menu-btn"><svg class="ico"><use href="#i-upload"/></svg><span><b id="menuReplaceLbl">Replace with a new file</b><small>Keeps its place and sticky notes</small></span></button>
       <button type="button" id="menuRemove" class="menu-btn danger"><svg class="ico"><use href="#i-trash"/></svg><span><b id="menuRemoveLbl">Remove</b><small>Deletes it and its sticky notes for everyone</small></span></button>
     </div>
@@ -268,6 +270,25 @@
       <div class="dpad-ud"><button type="button" class="step" data-act="m-u">Up</button><button type="button" class="step" data-act="m-d">Down</button></div>
     </div>
     <div class="chips"><button type="button" data-act="reset" id="adjReset">Back to its booth spot</button><button type="button" data-act="here">Bring in front of me</button></div>
+    <div class="actions"><button type="button" class="btn primary" data-close>Done</button></div>
+  </div>
+</div>
+
+<!-- Section cut on a model -->
+<div id="section" class="overlay sheet-wrap clear" hidden>
+  <div class="sheet glass adjust">
+    <div class="sheet-head"><div class="titles"><b id="sectionTitle">Section cut</b><span class="fine">Everyone in the room sees the cut</span></div><button type="button" class="x" data-close aria-label="Close">&times;</button></div>
+    <div class="chips pick cut-modes">
+      <button type="button" data-cut="off">Off</button>
+      <button type="button" data-cut="a-y">Horizontal</button>
+      <button type="button" data-cut="a-x">Vertical, side to side</button>
+      <button type="button" data-cut="a-z">Vertical, front to back</button>
+    </div>
+    <div id="cutCtl" hidden>
+      <div class="adj-row"><span class="label">Position</span><span id="cutVal" class="val"></span></div>
+      <div class="adj-ctl"><button type="button" class="step" data-cutstep="c-" aria-label="Move the cut down or back">&minus;</button><input type="range" id="cutPos" min="0" max="1" step="0.001" aria-label="Cut position"><button type="button" class="step" data-cutstep="c+" aria-label="Move the cut up or forward">+</button></div>
+      <div class="chips"><button type="button" data-cut="flip">Flip the side that's removed</button></div>
+    </div>
     <div class="actions"><button type="button" class="btn primary" data-close>Done</button></div>
   </div>
 </div>

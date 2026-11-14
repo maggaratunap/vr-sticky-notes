@@ -152,6 +152,14 @@ function slotTaken(room, booth, slot, exceptId) {
   return false;
 }
 
+// Section cut on a model: axis (y = horizontal, x or z = vertical), position 0-1 across the
+// model's bounding box, and which side is kept. null = no cut.
+function cleanCut(c) {
+  if (!c || typeof c !== 'object' || !['x', 'y', 'z'].includes(c.a)) return null;
+  const t = num(c.t, 1);
+  return { a: c.a, t: t === null ? 0.5 : Math.min(1, Math.max(0, Math.round(t * 10000) / 10000)), f: c.f === true };
+}
+
 function roomBytes(room) {
   let b = 0;
   for (const it of room.items.values()) b += it.size || 0;
@@ -611,8 +619,9 @@ wss.on('connection', (ws, req) => {
         const ry = num(m.ry, 100000); if (ry !== null) it.ry = ((ry % 360) + 360) % 360;
         const s = num(m.s, 1000); if (s !== null && s >= 0.0005) it.s = Math.round(s * 100000) / 100000;
         const pg = num(m.page, 10000); if (pg !== null && pg >= 1) it.page = Math.floor(pg);
+        if (m.cut !== undefined && it.kind === 'model') it.cut = cleanCut(m.cut);
         scheduleSave(room);
-        broadcast(room, { type: 'item-update', item: { id: it.id, p: it.p, ry: it.ry, s: it.s, page: it.page, by: u.name } });
+        broadcast(room, { type: 'item-update', item: { id: it.id, p: it.p, ry: it.ry, s: it.s, page: it.page, cut: it.cut || null, by: u.name } });
         break;
       }
       case 'portal-add': {

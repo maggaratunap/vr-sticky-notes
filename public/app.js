@@ -1223,6 +1223,7 @@
     rec.root.object3D.rotation.set(0, THREE.MathUtils.degToRad(d.ry || 0), 0);
     rec.inner.object3D.scale.setScalar(d.s || 1);
     for (const n of notes.values()) if (n.data.on === d.id) n.el.object3D.scale.setScalar(1 / (d.s || 1));
+    if (rec.cut) updateCutWorld(rec);
     if (window.VSNLook) VSNLook.refreshShadows();
   }
 
@@ -1230,8 +1231,10 @@
     const rec = items.get(patch.id);
     if (!rec) return;
     const pageChanged = patch.page != null && patch.page !== rec.data.page;
+    const cutChanged = patch.cut !== undefined && JSON.stringify(patch.cut) !== JSON.stringify(rec.data.cut || null);
     Object.assign(rec.data, patch);
     applyItemTransform(rec);
+    if (cutChanged) { applyCut(rec); if (sectionId === patch.id) syncSectionUI(); }
     if (rec.data.kind === 'pdf' && pageChanged) { showPdfPage(rec); updatePdfNoteVisibility(rec); }
     updateBoothLabels();
     if (adjustId === patch.id) { syncAdjustUI(); refreshSelection(); }
@@ -1242,6 +1245,8 @@
     const rec = items.get(id);
     if (!rec) return;
     for (const [nid, n] of [...notes]) if (n.data.on === id) removeNote(nid);
+    clearCut(rec);
+    if (sectionId === id) { if (!$('#section').hidden) { $('#section').hidden = true; syncSheetState(); } closeSection(); }
     rec.textures.forEach((t) => t.dispose());
     if (rec.doc) rec.doc.destroy().catch(() => {});
     if (rec.root.parentNode) rec.root.parentNode.removeChild(rec.root);
@@ -1290,6 +1295,8 @@
     rec.size = box.getSize(new THREE.Vector3());
     rec.content.object3D.updateMatrixWorld(true);
     if (window.VSNLook) VSNLook.shadows(mesh, true, true);
+    if (rec.cut) clearCut(rec);
+    applyCut(rec);
     refreshRaycasters();
     refreshSelection();
     if (adjustId === rec.data.id) syncAdjustUI();
@@ -1307,6 +1314,94 @@
       } else toast(`"${itemTitle(rec.data)}" is ready.`);
     }
     refreshPanel('objects');
+  }
+
+  // ---------------- section cuts ----------------
+  // A cut is one clipping plane in the model's own space: axis y = horizontal (plan),
+  // x or z = vertical. t is the position across the model's bounding box (0-1), and f picks
+  // the side that stays. Inside faces exposed by the cut are filled with a solid section colour.
+  const CUT_COLOR = 0xd2553a;
+  const AXIS_I = { x: 0, y: 1, z: 2 };
+  function cutValue(rec, cut) { // position of the cut in model units, measured from the box edge
+    const len = rec.size[cut.a];
+    return { lo: cut.a === 'y' ? 0 : -len / 2, len, at: cut.t * len };
+  }
+  function setupCut(rec, mesh) {
+    const world = new THREE.Plane();
+    const capMat = new THREE.MeshBasicMaterial({ color: CUT_COLOR, side: THREE.BackSide, clippingPlanes: [world] });
+    capMat.toneMapped = false;
+    const cut = { local: new THREE.Plane(), world, capMat, caps: [], mats: new Set(), meshes: [] };
+    scene.renderer.localClippingEnabled = true;
+    const skip = (o) => o.userData && o.userData.cutCap;
+    mesh.traverse((o) => {
+      if (!o.isMesh || skip(o)) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      const seeThrough = mats.some((m) => m && (m.transparent || m.opacity < 1));
+      mats.forEach((m) => {
+        if (!m || cut.mats.has(m)) return;
+        m.clippingPlanes = [world]; m.clipShadows = true;
+        // an opaque double-sided surface would draw its own back faces over the section fill
+        if (!seeThrough && m.side === THREE.DoubleSide) { m.userData.cutSide = m.side; m.side = THREE.FrontSide; }
+        m.needsUpdate = true; cut.mats.add(m);
+      });
+      // clicks only land on what is still visible
+      o.raycast = function (rc, out) {
+        const start = out.length;
+        THREE.Mesh.prototype.raycast.call(this, rc, out);
+        for (let k = out.length - 1; k >= start; k--) if (world.distanceToPoint(out[k].point) < -1e-4) out.splice(k, 1);
+      };
+      cut.meshes.push(o);
+      if (!o.isSkinnedMesh && !o.morphTargetInfluences && !seeThrough) {
+        const cap = new THREE.Mesh(o.geometry, capMat);
+        cap.userData.cutCap = true;
+        cap.raycast = () => {};
+        cap.castShadow = false; cap.receiveShadow = false;
+        o.add(cap);
+        cut.caps.push(cap);
+      }
+    });
+    rec.cut = cut;
+  }
+  function clearCut(rec) {
+    const cut = rec.cut;
+    if (!cut) return;
+    cut.caps.forEach((c) => { if (c.parent) c.parent.remove(c); });
+    cut.mats.forEach((m) => {
+      m.clippingPlanes = null;
+      if (m.userData.cutSide !== undefined) { m.side = m.userData.cutSide; delete m.userData.cutSide; }
+      m.needsUpdate = true;
+    });
+    cut.meshes.forEach((o) => { delete o.raycast; });
+    cut.capMat.dispose();
+    rec.cut = null;
+    updateCutNotes(rec);
+    if (window.VSNLook) VSNLook.refreshShadows();
+  }
+  function updateCutWorld(rec) {
+    rec.root.object3D.updateMatrixWorld(true);
+    rec.cut.world.copy(rec.cut.local).applyMatrix4(rec.content.object3D.matrixWorld);
+  }
+  function updateCutNotes(rec) {
+    const v = new THREE.Vector3();
+    for (const n of notes.values()) {
+      if (n.data.on !== rec.data.id) continue;
+      n.el.setAttribute('visible', !rec.cut || rec.cut.local.distanceToPoint(v.fromArray(n.data.p)) > -0.02);
+    }
+  }
+  function applyCut(rec) {
+    if (rec.data.kind !== 'model') return;
+    const cut = rec.data.cut;
+    const mesh = rec.content && rec.content.getObject3D('mesh');
+    if (!cut) { clearCut(rec); return; }
+    if (!mesh || !rec.size) return; // applied again once the model has loaded
+    if (!rec.cut) setupCut(rec, mesh);
+    const { lo, at } = cutValue(rec, cut);
+    const n = new THREE.Vector3();
+    n.setComponent(AXIS_I[cut.a], cut.f ? 1 : -1); // f false keeps the low side (below, left, back)
+    rec.cut.local.set(n, cut.f ? -(lo + at) : lo + at);
+    updateCutWorld(rec);
+    updateCutNotes(rec);
+    if (window.VSNLook) VSNLook.refreshShadows();
   }
 
   function buildPdfPanel(rec) {
@@ -1786,6 +1881,7 @@
     notes.set(n.id, { data: n, el: root });
     renderNote(n.id);
     if (item && item.data.kind === 'pdf') root.setAttribute('visible', !n.pg || n.pg === item.data.page);
+    if (item && item.cut) root.setAttribute('visible', item.cut.local.distanceToPoint(new THREE.Vector3().fromArray(n.p)) > -0.02);
     root.setAttribute('animation__in', { property: 'scale', from: '0.2 0.2 0.2', to: root.object3D.scale.toArray().join(' '), dur: 260, easing: 'easeOutBack' });
     refreshPanel('people');
   }
@@ -1876,6 +1972,7 @@
   let menuItemId = null;
   let menuPlace = null;
   let adjustId = null;
+  let sectionId = null;
   let selection = null; // outline around the object being worked on
   const canManage = (d) => !!(d && (d.mine || me.isAdmin || roomInfo.mine));
 
@@ -1900,7 +1997,7 @@
   function openItemMenu(id, place) {
     const rec = items.get(id);
     if (!rec) return;
-    ['#adjust', '#detail', '#composer'].forEach((sel) => { if (!$(sel).hidden) closeSheet(sel); });
+    ['#adjust', '#section', '#detail', '#composer'].forEach((sel) => { if (!$(sel).hidden) closeSheet(sel); });
     menuItemId = id; menuPlace = place;
     selectItem(id);
     showGhost(place, lastNoteColor);
@@ -1911,6 +2008,8 @@
     const manage = canManage(d);
     $('#menuReplaceLbl').textContent = d.kind === 'pdf' ? 'Replace with a new PDF' : 'Replace with a new model';
     $('#menuRemoveLbl').textContent = d.kind === 'pdf' ? 'Remove PDF' : 'Remove model';
+    $('#menuSection').hidden = d.kind !== 'model';
+    $('#menuSectionSub').textContent = d.cut ? `On: ${cutLabel(d.cut)}` : 'Slice it horizontally or vertically';
     $('#menuReplace').disabled = !manage;
     $('#menuRemove').disabled = !manage;
     $('#menuHint').textContent = manage ? '' : 'Only the person who uploaded it, the room creator, or the admin can replace or remove it.';
@@ -1929,6 +2028,7 @@
     if (id && place) startNoteAt(place, id);
   });
   $('#menuAdjust').addEventListener('click', () => { const id = menuItemId; closeItemMenu(); openAdjust(id); });
+  $('#menuSection').addEventListener('click', () => { const id = menuItemId; closeItemMenu(); openSection(id); });
   $('#menuReplace').addEventListener('click', () => { const id = menuItemId; closeItemMenu(); openUpload({ replace: id }); });
   $('#menuRemove').addEventListener('click', () => { const id = menuItemId; closeItemMenu(); deleteItem(id); });
 
@@ -2052,6 +2152,87 @@
   $('#adjRot').addEventListener('input', (e) => { if (adjustId) { adjustPatch(adjustId, { ry: Number(e.target.value) }); syncAdjustUI(); } });
   $('#adjRot').addEventListener('change', flushAdjust);
 
+  // Section cut panel: shared with everyone, like moving an object
+  const CUT_NAMES = { y: 'Horizontal', x: 'Vertical, side to side', z: 'Vertical, front to back' };
+  function cutLabel(c) { return c ? `${CUT_NAMES[c.a]} at ${Math.round(c.t * 100)}%` : 'Off'; }
+  function cutText(rec) {
+    const c = rec.data.cut;
+    if (!c) return 'Off';
+    if (!rec.size) return `${Math.round(c.t * 100)}%`;
+    const len = rec.size[c.a], at = c.t * len; // model units (metres in a Revit export), whatever the display scale
+    return c.a === 'y' ? `${at.toFixed(2)} m above the base, of ${len.toFixed(1)} m` : `${at.toFixed(2)} m in from the edge, of ${len.toFixed(1)} m`;
+  }
+  function sendCut(id, cut, immediate) {
+    adjustPatch(id, { cut }, immediate);
+    syncSectionUI();
+  }
+  function startCut(rec, a) {
+    if (!rec.size) return toast('The model is still loading.');
+    let t = 0.5, f = false;
+    if (a === 'y') { const h = rec.size.y; if (h > 2.6) t = Math.min(0.9, 1.2 / h); } // plan cut 1.2 m above the base for buildings
+    else { // remove the half nearer to you, so you look into the cut
+      const local = rec.content.object3D.worldToLocal(scene.camera.getWorldPosition(new THREE.Vector3()));
+      f = local.getComponent(AXIS_I[a]) < 0;
+    }
+    return { a, t, f };
+  }
+  function sectionAction(act) {
+    const id = sectionId, rec = id && items.get(id);
+    if (!rec) return;
+    const c = rec.data.cut;
+    if (act === 'off') sendCut(id, null, true);
+    else if (act.startsWith('a-')) { const a = act.slice(2); if (!c || c.a !== a) { const n = startCut(rec, a); if (n) sendCut(id, n, true); } }
+    else if (!c) return;
+    else if (act === 'flip') sendCut(id, { ...c, f: !c.f }, true);
+    else if (act === 'c-' || act === 'c+') {
+      const step = rec.size ? Math.min(0.02, 0.05 / rec.size[c.a]) : 0.01; // 5 cm, or 2% on small models
+      sendCut(id, { ...c, t: +Math.min(1, Math.max(0, c.t + (act === 'c+' ? step : -step))).toFixed(4) });
+    }
+  }
+  function syncSectionUI() {
+    const rec = sectionId && items.get(sectionId);
+    if (!rec) return;
+    if (scene.is('vr-mode')) { if (vrSectionText) vrSectionText.setAttribute('text', 'value', font3d(`${cutLabel(rec.data.cut)}\n${cutText(rec)}`)); return; }
+    if ($('#section').hidden) return;
+    const c = rec.data.cut;
+    $('#section').querySelectorAll('[data-cut]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.cut === 'off' ? !c : !!c && 'a-' + c.a === b.dataset.cut)));
+    $('#cutCtl').hidden = !c;
+    $('#cutVal').textContent = cutText(rec);
+    if (c && document.activeElement !== $('#cutPos')) $('#cutPos').value = c.t;
+  }
+  function openSection(id) {
+    const rec = items.get(id);
+    if (!rec || rec.data.kind !== 'model') return;
+    sectionId = id;
+    selectItem(id);
+    if (scene.is('vr-mode')) return openVrSection(id);
+    $('#sectionTitle').textContent = `Section cut on "${itemTitle(rec.data)}"`;
+    openSheet('#section');
+    syncSectionUI();
+    frameAboveSheet(id);
+  }
+  function closeSection() {
+    flushAdjust();
+    sectionId = null;
+    vrSectionText = null;
+    if (!adjustId) selectItem(null);
+    closeVrPanel();
+  }
+  $('#section').querySelectorAll('[data-cut]').forEach((b) => b.addEventListener('click', () => sectionAction(b.dataset.cut)));
+  $('#section').querySelectorAll('[data-cutstep]').forEach((b) => {
+    const act = b.dataset.cutstep;
+    let t1 = null, t2 = null;
+    const stop = () => { clearTimeout(t1); clearInterval(t2); t1 = t2 = null; b.classList.remove('held'); flushAdjust(); };
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); b.classList.add('held'); sectionAction(act); t1 = setTimeout(() => { t2 = setInterval(() => sectionAction(act), 70); }, 380); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((t) => b.addEventListener(t, stop));
+    b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sectionAction(act); } });
+  });
+  $('#cutPos').addEventListener('input', (e) => {
+    const rec = sectionId && items.get(sectionId);
+    if (rec && rec.data.cut) sendCut(sectionId, { ...rec.data.cut, t: +Number(e.target.value).toFixed(4) });
+  });
+  $('#cutPos').addEventListener('change', flushAdjust);
+
   function startNoteAt(place, itemId) {
     const opts = { mode: 'new', world: place };
     if (itemId && items.has(itemId)) {
@@ -2135,6 +2316,7 @@
     if (sel === '#panel') $('#panel').dataset.kind = '';
     if (sel === '#upload' && uploadXhr) { uploadXhr.abort(); uploadXhr = null; }
     if (sel === '#itemMenu') closeItemMenu(keepGhost);
+    if (sel === '#section') closeSection();
     if (sel === '#adjust') closeAdjust();
     syncSheetState();
   }
@@ -2142,7 +2324,7 @@
     w.addEventListener('click', (e) => { if (e.target === w || e.target.closest('[data-close]')) closeSheet('#' + w.id); });
   });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') ['#composer', '#detail', '#panel', '#upload', '#itemMenu', '#adjust', '#avatarSheet'].forEach((s) => { if (!$(s).hidden) closeSheet(s); });
+    if (e.key === 'Escape') ['#composer', '#detail', '#panel', '#upload', '#itemMenu', '#adjust', '#section', '#avatarSheet'].forEach((s) => { if (!$(s).hidden) closeSheet(s); });
   });
 
   const panelBuilders = {};
@@ -2507,8 +2689,29 @@
     const btn = (label, y, fn, opts) => vrButton(root, label, 0, y, W - 0.08, 0.075, fn, Object.assign({ charSize: 0.028 }, opts || {}));
     btn('Add sticky note here', 0.07, () => { const p = menuPlace; closeItemMenu(true); if (p) startNoteAt(p, id); }, { color: '#2f6fc4', hover: '#4d8fe0' });
     btn('Move, rotate or resize', -0.02, () => { closeItemMenu(); openAdjust(id); });
-    btn(manage ? (d.kind === 'pdf' ? 'Remove PDF' : 'Remove model') : 'Remove (uploader only)', -0.11, () => { if (!manage) return vrToast('Only the uploader, room creator or admin can remove it.'); closeItemMenu(); send({ type: 'item-delete', id }); }, manage ? { color: '#5b3439', hover: '#b4373f' } : { color: '#30353e', hover: '#30353e' });
-    btn('Close', -0.2, () => closeItemMenu());
+    if (d.kind === 'model') btn(d.cut ? 'Section cut (on)' : 'Section cut', -0.11, () => { closeItemMenu(); openSection(id); });
+    btn(manage ? (d.kind === 'pdf' ? 'Remove PDF' : 'Remove model') : 'Remove (uploader only)', d.kind === 'model' ? -0.2 : -0.11, () => { if (!manage) return vrToast('Only the uploader, room creator or admin can remove it.'); closeItemMenu(); send({ type: 'item-delete', id }); }, manage ? { color: '#5b3439', hover: '#b4373f' } : { color: '#30353e', hover: '#30353e' });
+    btn('Close', d.kind === 'model' ? -0.29 : -0.2, () => closeItemMenu());
+    refreshPointersSoon();
+  }
+  let vrSectionText = null;
+  function openVrSection(id) {
+    const rec = items.get(id);
+    if (!rec) return;
+    const W = 0.78;
+    const root = vrPanelBase(W, 0.5, `Section cut: ${itemTitle(rec.data)}`, 'Everyone in the room sees the cut', true);
+    const b = (label, x, y, w, act, opts) => vrButton(root, label, x, y, w, 0.07, () => sectionAction(act), Object.assign({ charSize: 0.024 }, opts || {}));
+    b('Off', -0.29, 0.11, 0.14, 'off');
+    b('Horizontal', -0.12, 0.11, 0.18, 'a-y');
+    b('Side to side', 0.07, 0.11, 0.18, 'a-x');
+    b('Front to back', 0.26, 0.11, 0.18, 'a-z');
+    vrSectionText = el('a-entity', { position: `${-W / 2 + 0.04} 0.025 0.003` }, root);
+    vrSectionText.setAttribute('text', { value: '', color: '#ffffff', width: 0.7, wrapCount: 34, anchor: 'left' });
+    b('Lower / back', -0.22, -0.07, 0.26, 'c-');
+    b('Higher / forward', 0.07, -0.07, 0.3, 'c+');
+    b('Flip side', 0.29, -0.07, 0.14, 'flip');
+    vrButton(root, 'Done', 0, -0.17, 0.3, 0.07, () => closeSection(), { color: '#2f6fc4', hover: '#4d8fe0', charSize: 0.03 });
+    syncSectionUI();
     refreshPointersSoon();
   }
   function openVrAdjust(id) {
@@ -2710,7 +2913,7 @@
     const useGaze = DEVICE === 'phone';
     setGazeMode(useGaze);
     setHandRays(!useGaze);
-    ['#composer', '#detail', '#panel', '#upload', '#itemMenu', '#adjust', '#avatarSheet'].forEach((s) => { if (!$(s).hidden) closeSheet(s); });
+    ['#composer', '#detail', '#panel', '#upload', '#itemMenu', '#adjust', '#section', '#avatarSheet'].forEach((s) => { if (!$(s).hidden) closeSheet(s); });
     if (useGaze) vrToast('Aim the ring and press the Cardboard button', 3500);
     else vrToast(me.muted ? 'Mic off - press A or X to talk' : 'Mic on', 2500);
   });
