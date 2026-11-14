@@ -1224,6 +1224,7 @@
     rec.inner.object3D.scale.setScalar(d.s || 1);
     for (const n of notes.values()) if (n.data.on === d.id) n.el.object3D.scale.setScalar(1 / (d.s || 1));
     if (rec.cut) updateCutWorld(rec);
+    if (rec.cull) { rec.cull.stale = true; drawDirty = true; }
     if (window.VSNLook) VSNLook.refreshShadows();
   }
 
@@ -1295,8 +1296,10 @@
     rec.size = box.getSize(new THREE.Vector3());
     rec.content.object3D.updateMatrixWorld(true);
     if (window.VSNLook) VSNLook.shadows(mesh, true, true);
+    modelPicking(rec, mesh);
     if (rec.cut) clearCut(rec);
     applyCut(rec);
+    buildCull(rec, mesh);
     refreshRaycasters();
     refreshSelection();
     if (adjustId === rec.data.id) syncAdjustUI();
@@ -1315,6 +1318,102 @@
     }
     refreshPanel('objects');
   }
+
+  // ---------------- draw distance ----------------
+  // Uploaded models, and the separate parts inside them, are hidden when they are farther from
+  // you than the draw distance, so big buildings and full booths stay smooth on headsets and
+  // phones. The distance is to the nearest point of each part's box, so a floor you stand on
+  // never disappears. Each device remembers its own setting; 0 means no limit.
+  const DRAW_STEPS = [10, 15, 20, 25, 30, 40, 50, 60, 80, 100, 150, 0];
+  const DRAW_DEFAULT = { headset: 25, phone: 35, desktop: 80 }[DEVICE];
+  const DRAW_SLACK = 1.5; // metres past the limit before a part hides, so edges don't flicker
+  const fmtDraw = (m) => (m ? `${m} m` : 'No limit');
+  let drawDist = (() => {
+    const v = parseFloat(params.get('draw') != null ? params.get('draw') : store.get('vsn.draw'));
+    return Number.isFinite(v) && v >= 0 ? v : DRAW_DEFAULT;
+  })();
+  let drawDirty = true;
+  const cullFrom = new THREE.Vector3(Infinity, 0, 0);
+  const cullPos = new THREE.Vector3();
+  function setDrawDistance(m, remember) {
+    drawDist = m;
+    if (remember !== false) store.set('vsn.draw', String(m));
+    drawDirty = true;
+    cullModels();
+  }
+  // One raycast filter per mesh: nothing hidden by distance and nothing on the cut-away side is clickable.
+  function modelPicking(rec, mesh) {
+    mesh.traverse((o) => {
+      if (!o.isMesh || (o.userData && o.userData.cutCap) || o.userData.vsnPick) return;
+      const base = o.raycast;
+      o.userData.vsnPick = true;
+      o.raycast = function (rc, out) {
+        if (rec.cull && (rec.cull.hidden || !this.visible)) return;
+        const start = out.length;
+        base.call(this, rc, out);
+        const cut = rec.cut;
+        if (cut) for (let k = out.length - 1; k >= start; k--) if (cut.world.distanceToPoint(out[k].point) < -1e-4) out.splice(k, 1);
+      };
+    });
+  }
+  function buildCull(rec, mesh) {
+    const parts = [];
+    mesh.traverse((o) => {
+      if (!o.isMesh || !o.geometry || (o.userData && o.userData.cutCap)) return;
+      if (!o.visible) return; // hidden in the file itself: leave it alone
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      parts.push({ o, box: new THREE.Box3() });
+    });
+    rec.content.object3D.visible = true;
+    rec.cull = { parts, box: new THREE.Box3(), hidden: false, stale: true, out: 0 };
+    drawDirty = true;
+    cullModels();
+  }
+  function cullBoxes(rec) {
+    const c = rec.cull;
+    rec.root.object3D.updateMatrixWorld(true);
+    c.box.makeEmpty();
+    for (const p of c.parts) {
+      p.box.copy(p.o.geometry.boundingBox).applyMatrix4(p.o.matrixWorld);
+      c.box.union(p.box);
+    }
+    c.stale = false;
+  }
+  function cullModel(rec, pos) {
+    const c = rec.cull;
+    if (c.stale) cullBoxes(rec);
+    const D = drawDist;
+    let changed = false;
+    const hideAll = D > 0 && c.box.distanceToPoint(pos) > D + (c.hidden ? 0 : DRAW_SLACK);
+    if (hideAll !== c.hidden) {
+      c.hidden = hideAll;
+      rec.content.object3D.visible = !hideAll;
+      changed = true;
+    }
+    if (hideAll || c.parts.length < 2) return changed;
+    let out = 0;
+    for (const p of c.parts) {
+      const d = D > 0 ? p.box.distanceToPoint(pos) : 0;
+      const show = !(D > 0) || d <= D || (p.o.visible && d <= D + DRAW_SLACK);
+      if (show !== p.o.visible) { p.o.visible = show; changed = true; }
+      if (!show) out++;
+    }
+    c.out = out;
+    return changed;
+  }
+  // Runs a few times a second, and only does work after you move or something changes.
+  function cullModels() {
+    const cam = scene.camera;
+    if (!cam) return;
+    cam.getWorldPosition(cullPos);
+    if (!drawDirty && cullPos.distanceToSquared(cullFrom) < 0.09) return;
+    cullFrom.copy(cullPos);
+    drawDirty = false;
+    let changed = false;
+    for (const rec of items.values()) if (rec.cull && rec.content && rec.content.getObject3D('mesh')) changed = cullModel(rec, cullPos) || changed;
+    if (changed && window.VSNLook) VSNLook.refreshShadows();
+  }
+  setInterval(cullModels, 150);
 
   // ---------------- section cuts ----------------
   // A cut is one clipping plane in the model's own space: axis y = horizontal (plan),
@@ -1344,13 +1443,7 @@
         if (!seeThrough && m.side === THREE.DoubleSide) { m.userData.cutSide = m.side; m.side = THREE.FrontSide; }
         m.needsUpdate = true; cut.mats.add(m);
       });
-      // clicks only land on what is still visible
-      o.raycast = function (rc, out) {
-        const start = out.length;
-        THREE.Mesh.prototype.raycast.call(this, rc, out);
-        for (let k = out.length - 1; k >= start; k--) if (world.distanceToPoint(out[k].point) < -1e-4) out.splice(k, 1);
-      };
-      cut.meshes.push(o);
+      cut.meshes.push(o); // clicks skip the removed side: see modelPicking()
       if (!o.isSkinnedMesh && !o.morphTargetInfluences && !seeThrough) {
         const cap = new THREE.Mesh(o.geometry, capMat);
         cap.userData.cutCap = true;
@@ -1371,7 +1464,6 @@
       if (m.userData.cutSide !== undefined) { m.side = m.userData.cutSide; delete m.userData.cutSide; }
       m.needsUpdate = true;
     });
-    cut.meshes.forEach((o) => { delete o.raycast; });
     cut.capMat.dispose();
     rec.cut = null;
     updateCutNotes(rec);
@@ -2377,6 +2469,7 @@
           b.onclick = () => { VSNLook.setQuality(q); refreshPanel('people'); toast(q === 'fast' ? 'Fast graphics: shadows and reflections off for smoother motion on older devices.' : 'Detailed graphics: shadows and reflections on.'); };
         });
       }
+      drawControl(body);
       const actions = el('div', { class: 'actions' }, body);
       const av = el('button', { class: 'btn', type: 'button' }, actions);
       av.textContent = 'Customize avatar';
@@ -2399,6 +2492,31 @@
     });
   }
 
+  const DEVICE_NAME = { headset: 'headset', phone: 'phone or tablet', desktop: 'computer' }[DEVICE];
+  function drawControl(body) {
+    const box = el('div', { class: 'drawdist' }, body);
+    const head = el('div', { class: 'adj-row' }, box);
+    el('span', { class: 'label' }, head).textContent = 'Model draw distance';
+    const val = el('span', { class: 'val' }, head);
+    const ctl = el('div', { class: 'adj-ctl' }, box);
+    const idx = () => { const i = DRAW_STEPS.indexOf(drawDist); if (i >= 0) return i; if (!drawDist) return DRAW_STEPS.length - 1; let k = 0; DRAW_STEPS.forEach((m, j) => { if (m && Math.abs(m - drawDist) < Math.abs(DRAW_STEPS[k] - drawDist)) k = j; }); return k; };
+    const range = el('input', { type: 'range', min: '0', max: String(DRAW_STEPS.length - 1), step: '1', 'aria-label': 'Model draw distance' }, ctl);
+    const note = el('p', { class: 'fine' }, box);
+    const def = el('button', { type: 'button', class: 'linkish' }, note);
+    const show = () => {
+      val.textContent = fmtDraw(drawDist);
+      range.value = String(idx());
+      range.setAttribute('aria-valuetext', fmtDraw(drawDist));
+      note.firstChild.textContent = `Models, and parts of big models, farther away than this are hidden to keep things smooth. Default on this ${DEVICE_NAME}: ${fmtDraw(DRAW_DEFAULT)}.`;
+      def.hidden = drawDist === DRAW_DEFAULT;
+    };
+    note.insertBefore(document.createTextNode(''), def);
+    def.textContent = 'Use the default';
+    range.addEventListener('input', () => { setDrawDistance(DRAW_STEPS[+range.value]); show(); });
+    def.onclick = () => { setDrawDistance(DRAW_DEFAULT); show(); };
+    show();
+  }
+
   function showObjects() {
     openPanel('objects', 'Objects in this room', (body) => {
       if (!items.size) {
@@ -2418,6 +2536,7 @@
           const s = d.s || 1;
           info = `3D model · ${(rec.size.x * s).toFixed(1)} x ${(rec.size.z * s).toFixed(1)} x ${(rec.size.y * s).toFixed(1)} m · ${Math.abs(s - 1) < 1e-4 ? 'real scale' : `scale ${s < 1 ? '1:' + +(1 / s).toPrecision(3) : s.toPrecision(3) + 'x'}`}`;
         } else info = '3D model · loading';
+        if (rec.cull && rec.cull.hidden) info += ` · hidden, farther than ${fmtDraw(drawDist)}`;
         el('span', { class: 'meta' }, head).textContent = d.booth ? `Booth ${d.booth}` : d.author;
         el('div', { class: 'meta' }, li).textContent = d.kind === 'portal' ? info : `${info} · ${fmtMB(d.size || 0)} · ${d.author}`;
         const tools = el('div', { class: 'tools' }, li);

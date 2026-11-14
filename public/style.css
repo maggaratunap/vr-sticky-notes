@@ -355,3 +355,12 @@ body.sheet-open .a-enter-vr { display: none !important; }
 #videoBin video { width: 2px; height: 2px; }
 .dock-btn.cam-on .dock-ico { background: var(--blueprint-wash); color: var(--blueprint-ink); }
 .dock-btn.cam-on .dock-lbl { color: var(--blueprint-ink); }
+
+/* model draw distance (people panel) */
+.drawdist { margin: 4px 0 12px; }
+.drawdist .adj-row { display: flex; justify-content: space-between; align-items: baseline; margin: 6px 0 2px; }
+.drawdist .adj-row .label { margin: 0; }
+.drawdist .val { font-size: 0.85rem; font-weight: 600; color: var(--graphite); font-variant-numeric: tabular-nums; }
+.drawdist .adj-ctl input[type=range] { width: 100%; }
+.drawdist .fine { margin-top: 4px; }
+.linkish { border: 0; background: none; padding: 0 0 0 6px; color: var(--blueprint); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
