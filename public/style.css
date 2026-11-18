@@ -369,3 +369,8 @@ body.sheet-open .a-enter-vr { display: none !important; }
 .form-link { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; margin: 4px 0 6px; border-radius: 12px; background: rgba(31, 122, 90, 0.09); border-left: 4px solid #1f7a5a; }
 .form-link b { font-size: 1rem; color: var(--graphite); overflow-wrap: anywhere; }
 #bfManage { margin-top: 8px; }
+
+/* linking your other devices (people panel) */
+.devices { margin: 4px 0 12px; }
+.devices .label { margin: 0 0 2px; display: block; }
+.devices .fine { margin: 2px 0 8px; }

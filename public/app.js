@@ -59,7 +59,12 @@
   const device = AFRAME.utils.device;
   const DEVICE = device.isMobileVR() ? 'headset' : device.isMobile() ? 'phone' : 'desktop';
   let ROOM = cleanSlug(params.get('room'));
-  const ADMIN = params.get('admin') || '';
+  // The admin key is remembered on this device once it has worked (open a room link with ?admin=KEY once).
+  let ADMIN = params.get('admin') || store.get('vsn.admin') || '';
+  // A "your other devices" link (#me=...) makes this browser count as the person who made it,
+  // so what they uploaded can be managed from here too.
+  const meLink = /(?:^#|&)me=([0-9a-f]{32})(?:&|$)/.exec(location.hash);
+  if (meLink) { store.set('vsn.key', meLink[1]); try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ } }
   let KEY = store.get('vsn.key');
   if (!KEY) { KEY = randHex(16); store.set('vsn.key', KEY); }
 
@@ -270,6 +275,11 @@
       case 'welcome': {
         me.id = m.id;
         me.isAdmin = !!m.isAdmin;
+        if (ADMIN) {
+          if (me.isAdmin) store.set('vsn.admin', ADMIN);
+          else { if (params.get('admin')) setTimeout(() => toast('That admin key was not accepted.', 4000), 3000); store.set('vsn.admin', ''); ADMIN = ''; }
+        }
+        if (meLink) setTimeout(() => toast('This device is now linked: it counts as you, so you can manage what you uploaded.', 5000), 3200);
         roomInfo = m.room;
         $('#roomLabel').textContent = roomInfo.name;
         if ($('#roomTitle3d')) $('#roomTitle3d').setAttribute('text', { value: font3d(roomInfo.name).toUpperCase().slice(0, 34) });
@@ -2121,9 +2131,11 @@
   const _m = new THREE.Matrix4();
   const ORIGIN = new THREE.Vector3();
   function placementFromHit(hit) {
-    if (!hit || !hit.face) return null;
-    _n.copy(hit.face.normal).transformDirection(hit.object.matrixWorld).normalize();
+    if (!hit || !hit.point) return null;
     const cam = scene.camera;
+    if (hit.face) _n.copy(hit.face.normal).transformDirection(hit.object.matrixWorld).normalize();
+    else if (cam) _n.copy(cam.getWorldPosition(new THREE.Vector3()).sub(hit.point)).normalize(); // a line or point: face the viewer
+    else _n.set(0, 0, 1);
     if (cam) {
       const toCam = cam.getWorldPosition(new THREE.Vector3()).sub(hit.point);
       if (toCam.dot(_n) < 0) _n.negate();
@@ -2193,6 +2205,7 @@
     return `${kind} · ${where} · added by ${d.author}`;
   }
 
+  const NOT_YOURS = 'Only the person who uploaded it, the room creator, or the admin can replace or remove it. Uploaded it from another device or browser? On that one, press the people button and open "Your other devices" to link this one.';
   function openItemMenu(id, place) {
     const rec = items.get(id);
     if (!rec) return;
@@ -2211,7 +2224,7 @@
     $('#menuSectionSub').textContent = d.cut ? `On: ${cutLabel(d.cut)}` : 'Slice it horizontally or vertically';
     $('#menuReplace').disabled = !manage;
     $('#menuRemove').disabled = !manage;
-    $('#menuHint').textContent = manage ? '' : 'Only the person who uploaded it, the room creator, or the admin can replace or remove it.';
+    $('#menuHint').textContent = manage ? '' : NOT_YOURS;
     openSheet('#itemMenu');
   }
   function closeItemMenu(keepGhost) {
@@ -2578,6 +2591,7 @@
         });
       }
       drawControl(body);
+      devicesControl(body);
       const actions = el('div', { class: 'actions' }, body);
       const av = el('button', { class: 'btn', type: 'button' }, actions);
       av.textContent = 'Customize avatar';
@@ -2600,6 +2614,26 @@
     });
   }
 
+  function devicesControl(body) {
+    const box = el('div', { class: 'devices' }, body);
+    el('span', { class: 'label' }, box).textContent = 'Your other devices';
+    el('p', { class: 'fine' }, box).textContent = 'Open this link on your phone, headset or another browser and it will count as you there: you can move, replace or remove what you uploaded from any of them. Keep it to yourself.';
+    const lb = el('div', { class: 'linkbox' }, box);
+    const input = el('input', { readonly: '', value: `${location.origin}/?room=${encodeURIComponent(ROOM)}#me=${KEY}`, 'aria-label': 'Link for your other devices' }, lb);
+    const copy = el('button', { class: 'btn', type: 'button' }, lb);
+    copy.textContent = 'Copy';
+    copy.onclick = async () => {
+      try { await navigator.clipboard.writeText(input.value); } catch (e) { input.select(); document.execCommand && document.execCommand('copy'); }
+      copy.textContent = 'Copied';
+    };
+    if (me.isAdmin) {
+      const a = el('p', { class: 'fine' }, box);
+      a.textContent = 'You are the admin on this device: you can change or remove anything in any room. ';
+      const off = el('button', { type: 'button', class: 'linkish' }, a);
+      off.textContent = 'Stop being admin here';
+      off.onclick = () => { store.set('vsn.admin', ''); location.href = `/?room=${encodeURIComponent(ROOM)}`; };
+    }
+  }
   const DEVICE_NAME = { headset: 'headset', phone: 'phone or tablet', desktop: 'computer' }[DEVICE];
   function drawControl(body) {
     const box = el('div', { class: 'drawdist' }, body);
@@ -2656,6 +2690,7 @@
         if (d.kind === 'pdf') { tool('Prev page', () => turnPage(d.id, -1)); tool('Next page', () => turnPage(d.id, 1)); }
         if (canManage(d) && d.kind !== 'portal') tool('Replace', () => { closeSheet('#panel'); openUpload({ replace: d.id }); });
         if (canManage(d)) tool('Remove', () => deleteItem(d.id), 'danger');
+        else el('p', { class: 'fine' }, li).textContent = NOT_YOURS;
       }
       const actions = el('div', { class: 'actions' }, body);
       actions.style.marginTop = '14px';
@@ -2912,14 +2947,19 @@
     const rec = items.get(id);
     if (!rec) return;
     const d = rec.data, manage = canManage(d);
-    const W = 0.62;
-    const root = vrPanelBase(W, 0.5, itemTitle(d), describeItem(d));
-    const btn = (label, y, fn, opts) => vrButton(root, label, 0, y, W - 0.08, 0.075, fn, Object.assign({ charSize: 0.028 }, opts || {}));
-    btn('Add sticky note here', 0.07, () => { const p = menuPlace; closeItemMenu(true); if (p) startNoteAt(p, id); }, { color: '#2f6fc4', hover: '#4d8fe0' });
-    btn('Move, rotate or resize', -0.02, () => { closeItemMenu(); openAdjust(id); });
-    if (d.kind === 'model') btn(d.cut ? 'Section cut (on)' : 'Section cut', -0.11, () => { closeItemMenu(); openSection(id); });
-    btn(manage ? (d.kind === 'pdf' ? 'Remove PDF' : 'Remove model') : 'Remove (uploader only)', d.kind === 'model' ? -0.2 : -0.11, () => { if (!manage) return vrToast('Only the uploader, room creator or admin can remove it.'); closeItemMenu(); send({ type: 'item-delete', id }); }, manage ? { color: '#5b3439', hover: '#b4373f' } : { color: '#30353e', hover: '#30353e' });
-    btn('Close', d.kind === 'model' ? -0.29 : -0.2, () => closeItemMenu());
+    const rows = [
+      ['Add sticky note here', () => { const p = menuPlace; closeItemMenu(true); if (p) startNoteAt(p, id); }, { color: '#2f6fc4', hover: '#4d8fe0' }],
+      ['Move, rotate or resize', () => { closeItemMenu(); openAdjust(id); }]
+    ];
+    if (d.kind === 'model') rows.push([d.cut ? 'Section cut (on)' : 'Section cut', () => { closeItemMenu(); openSection(id); }]);
+    rows.push([manage ? (d.kind === 'pdf' ? 'Remove PDF' : 'Remove model') : 'Remove (uploader only)',
+      () => { if (!manage) return vrToast('Only the uploader, room creator or admin can remove it. Uploaded it from another device? Link this headset from there (people button, "Your other devices").', 6000); closeItemMenu(); send({ type: 'item-delete', id }); },
+      manage ? { color: '#5b3439', hover: '#b4373f' } : { color: '#30353e', hover: '#30353e' }]);
+    rows.push(['Close', () => closeItemMenu()]);
+    const W = 0.62, STEP = 0.09, HEAD = 0.2;
+    const H = HEAD + rows.length * STEP + 0.03;
+    const root = vrPanelBase(W, H, itemTitle(d), describeItem(d));
+    rows.forEach(([label, fn, opts], i) => vrButton(root, label, 0, H / 2 - HEAD - STEP / 2 - i * STEP + 0.02, W - 0.08, 0.075, fn, Object.assign({ charSize: 0.028 }, opts || {})));
     refreshPointersSoon();
   }
   // In a headset the form opens in a browser tab, which ends VR.
