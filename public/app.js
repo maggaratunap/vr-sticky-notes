@@ -75,6 +75,7 @@
   const peers = new Map(); // id -> { info, el, pc, transceiver, pending, audio }
   const notes = new Map(); // id -> { data, el }
   const items = new Map(); // id -> { data, root, inner, content, size, ... }
+  const boothLinks = new Map(); // booth number -> { url, label, author, mine }
   let ws = null;
   let joined = false;
   let reconnectDelay = 1000;
@@ -278,6 +279,9 @@
         for (const id of [...items.keys()]) if (!incoming.has(id)) removeItem(id);
         m.items.forEach(addItem);
         m.notes.forEach(addNote);
+        boothLinks.clear();
+        (m.links || []).forEach((l) => boothLinks.set(l.booth, l));
+        renderBoothLinks();
         m.peers.forEach((p) => { addPeer(p); if (me.id < p.id) callPeer(p.id); });
         updatePeopleCount();
         toast(m.peers.length ? `Joined "${roomInfo.name}" with ${m.peers.length} other${m.peers.length > 1 ? 's' : ''}` : `Joined "${roomInfo.name}". Use Invite to bring others.`);
@@ -324,6 +328,16 @@
         replaceItem(m.item);
         break;
       case 'item-delete': removeItem(m.id); break;
+      case 'booth-links': {
+        m.links.forEach((l) => { if (l.url) boothLinks.set(l.booth, l); else boothLinks.delete(l.booth); });
+        renderBoothLinks();
+        if (boothFormN && m.links.some((l) => l.booth === boothFormN) && !$('#boothForm').hidden && $('#bfEditBox').hidden) showBoothForm(boothFormN);
+        if (!m.byMe) {
+          const one = m.links.length === 1 ? m.links[0] : null;
+          toast(one ? `${m.by} ${one.url ? 'set the form link on' : 'removed the form link from'} booth ${one.booth}` : `${m.by} updated the form links on ${m.links.length} booths`);
+        } else toast(m.links.length > 1 ? `Form link saved on ${m.links.length} booths.` : m.links[0].url ? `Form link saved on booth ${m.links[0].booth}.` : `Form link removed from booth ${m.links[0].booth}.`);
+        break;
+      }
       case 'signal': handleSignal(m.from, m.data); break;
       case 'room-deleted':
         joined = false;
@@ -1155,12 +1169,105 @@
         { color: '#2f6fc4', hover: '#4d8fe0', charSize: 0.05 });
       b.plaque.setAttribute('position', `${BOOTH_W / 2 - 0.45} 1.18 ${BOOTH_D - 0.12}`);
       b.plaqueText = '+ Add model or PDF';
+      // Google Form sign on a matching post on the other side of the entrance
+      put(boxGeo, M.steel, [-(BOOTH_W / 2 - 0.45), 0.55, BOOTH_D - 0.15], [0.04, 1.1, 0.04], null, true);
+      b.group = g;
     });
     trackHeads.instanceMatrix.needsUpdate = true;
     deco.add(trackHeads);
     L.mergeStatic(deco);
     updateBoothLabels();
+    renderBoothLinks();
   }
+
+  // ---------------- booth form links (Google Forms) ----------------
+  const isFormUrl = (v) => {
+    let t = String(v || '').trim();
+    if (!t) return null;
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(t)) t = 'https://' + t;
+    let u;
+    try { u = new URL(t); } catch (e) { return null; }
+    if (!/^https?:$/.test(u.protocol) || u.username || u.password) return null;
+    const h = u.hostname.toLowerCase();
+    return h === 'forms.gle' || h === 'forms.google.com' || (h === 'docs.google.com' && /^\/(a\/[^/]+\/)?forms\//.test(u.pathname)) ? 'https://' + u.href.slice(u.protocol.length + 2) : null;
+  };
+  // {booth} in a pre-filled link becomes the booth number, so one form can serve every booth.
+  const formHref = (n) => { const l = boothLinks.get(n); return l ? l.url.replace(/\{booth\}|%7Bbooth%7D/gi, String(n)) : null; };
+  const canEditLink = (l) => !l || l.mine || roomInfo.mine || me.isAdmin;
+  function renderBoothLinks() {
+    for (const b of BOOTHS) {
+      if (!b.group) continue;
+      const l = boothLinks.get(b.n);
+      const key = l ? 'L' + l.label : 'empty';
+      if (b.formKey === key) continue;
+      b.formKey = key;
+      if (b.formSign) b.formSign.remove();
+      const x = -(BOOTH_W / 2 - 0.45);
+      b.formSign = l
+        ? vrButton(b.group, `${font3d(l.label).slice(0, 22)}\nOpen form >`, x, 0, 0.86, 0.24, () => openBoothForm(b.n), { color: '#1f7a5a', hover: '#2aa077', charSize: 0.042 })
+        : vrButton(b.group, '+ Form link', x, 0, 0.6, 0.12, () => openBoothForm(b.n), { color: '#4a515c', hover: '#2f6fc4', charSize: 0.04 });
+      b.formSign.setAttribute('position', `${x} ${l ? 1.22 : 1.16} ${BOOTH_D - 0.12}`);
+      if (l) b.formSign.setAttribute('text', { wrapCount: Math.max(16, Math.min(22, font3d(l.label).length) + 2) });
+    }
+    refreshPointersSoon();
+  }
+  function openFormTab(n) {
+    const href = formHref(n);
+    if (!href) return false;
+    const w = window.open(href, '_blank');
+    if (w) { try { w.opener = null; } catch (e) { /* cross-origin */ } }
+    return !!w;
+  }
+  let boothFormN = null;
+  function openBoothForm(n) {
+    if (scene.is('vr-mode')) return openVrBoothForm(n);
+    ['#adjust', '#section', '#detail', '#composer', '#itemMenu'].forEach((sel) => { if (!$(sel).hidden) closeSheet(sel); });
+    boothFormN = n;
+    showBoothForm(n, !boothLinks.get(n));
+    openSheet('#boothForm');
+    if (!boothLinks.get(n)) setTimeout(() => $('#bfUrl').focus(), 50);
+  }
+  function showBoothForm(n, edit) {
+    const l = boothLinks.get(n);
+    const owner = roomInfo.mine || me.isAdmin;
+    $('#bfTitle').textContent = `Booth ${n} form`;
+    $('#bfMeta').textContent = l ? `Added by ${l.author}` : 'No form link yet';
+    $('#bfView').hidden = !!edit || !l;
+    $('#bfEditBox').hidden = !edit && !!l;
+    $('#bfMsg').textContent = '';
+    if (l && !edit) {
+      $('#bfLabel').textContent = l.label;
+      let host = ''; try { host = new URL(l.url).hostname; } catch (e) { /* ignore */ }
+      $('#bfHost').textContent = host;
+      $('#bfManage').hidden = !canEditLink(l);
+      $('#bfHint').textContent = canEditLink(l) ? '' : 'Only the person who added this link, the room creator, or the admin can change it.';
+    }
+    if (edit || !l) {
+      $('#bfUrl').value = l ? l.url : '';
+      $('#bfName').value = l ? l.label : '';
+      $('#bfAllWrap').hidden = !owner;
+      $('#bfAll').checked = false;
+      $('#bfCancel').textContent = l ? 'Back' : 'Cancel';
+      if (!canEditLink(l)) { $('#bfMsg').textContent = 'Only the person who added this link, the room creator, or the admin can change it.'; }
+    }
+  }
+  $('#bfOpen').addEventListener('click', () => { if (!openFormTab(boothFormN)) toast('Your browser blocked the new tab. Allow pop-ups for this site and try again.', 4000); });
+  $('#bfEdit').addEventListener('click', () => showBoothForm(boothFormN, true));
+  $('#bfRemove').addEventListener('click', () => {
+    if (!confirm(`Remove the form link from booth ${boothFormN}?`)) return;
+    send({ type: 'booth-link', booth: boothFormN, url: null });
+    closeSheet('#boothForm');
+  });
+  $('#bfCancel').addEventListener('click', () => { if (boothLinks.get(boothFormN)) showBoothForm(boothFormN); else closeSheet('#boothForm'); });
+  $('#boothFormForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const url = isFormUrl($('#bfUrl').value);
+    if (!url) { $('#bfMsg').textContent = 'That is not a Google Forms link. In Google Forms, press Send, choose the link tab and copy it (forms.gle/... or docs.google.com/forms/...).'; return; }
+    const all = !$('#bfAllWrap').hidden && $('#bfAll').checked;
+    if (all && [...boothLinks.keys()].some((k) => k !== boothFormN) && !confirm('Replace the form link on every booth with this one?')) return;
+    send({ type: 'booth-link', booth: boothFormN, url, label: $('#bfName').value.trim(), all: all || undefined });
+    closeSheet('#boothForm');
+  });
 
   // Tap / click / aim at the floor or a plinth to walk there.
   function onFloorClick(e) {
@@ -2410,13 +2517,14 @@
     if (sel === '#itemMenu') closeItemMenu(keepGhost);
     if (sel === '#section') closeSection();
     if (sel === '#adjust') closeAdjust();
+    if (sel === '#boothForm') boothFormN = null;
     syncSheetState();
   }
   document.querySelectorAll('.sheet-wrap').forEach((w) => {
     w.addEventListener('click', (e) => { if (e.target === w || e.target.closest('[data-close]')) closeSheet('#' + w.id); });
   });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') ['#composer', '#detail', '#panel', '#upload', '#itemMenu', '#adjust', '#section', '#avatarSheet'].forEach((s) => { if (!$(s).hidden) closeSheet(s); });
+    if (e.key === 'Escape') ['#composer', '#detail', '#panel', '#upload', '#itemMenu', '#adjust', '#section', '#boothForm', '#avatarSheet'].forEach((s) => { if (!$(s).hidden) closeSheet(s); });
   });
 
   const panelBuilders = {};
@@ -2590,6 +2698,7 @@
         <h4>Move</h4><p>Phone and tablet: left stick to move, right stick to look around, or turn your phone to look (the phone button at the top switches this off). <b>Run</b> switches sprinting on and off and <b>Jump</b> jumps. Computer: WASD or arrow keys, drag to look, Q / E to turn, hold Shift to sprint, Space to jump. Headset: left stick walks (click it to sprint), right stick turns (click it to jump), or point at the floor and pull the trigger. Everyone sees your avatar walk, run and jump with you.</p>
         <h4>Camera</h4><p>Tap <b>Camera</b> in the bottom bar to share your webcam. Your picture appears on a small screen above your avatar for everyone in the room, and a preview shows top left. Tap it again to stop. It is off when you join.</p>
         <h4>Talk</h4><p>Use the mic button (or A / X on a Quest controller). Voices are louder when people stand closer. A green ring shows who is talking.</p>
+        <h4>Booth forms</h4><p>Each booth can link to a Google Form, for example a feedback or peer review form. Press <b>+ Form link</b> on the post at the left of the booth entrance and paste the link from Google Forms (Send, then the link tab). Visitors press the green sign to open the form in a new tab; in a headset this leaves VR. The room creator can put one link on every booth. To know which booth each answer is about, make a pre-filled link in Google Forms with <b>{booth}</b> as the answer to a question: it is replaced with the booth number.</p>
         <h4>Fly</h4><p>Press <b>Fly</b> to float freely: you move in the direction you look, including up and down. Computer: WASD, Space to rise, Shift to sink, F to toggle. Phone: the left stick flies where you look, hold the arrow buttons to rise or sink. Headset: left stick flies where you look, right stick up / down rises and sinks, B or Y toggles. Cardboard: turn Fly on before entering VR, then aim at the sky and press the button. On a computer or in VR, click or aim at the floor to land; turning Fly off always brings you down.</p>
         <h4>Room shortcuts</h4><p>In <b>Objects</b>, choose <b>Add room shortcut</b> to create a new room (or link an existing one). A doorway appears in front of you. Go through it by tapping, clicking, or pointing at it. You stay in VR when you switch rooms.</p>
         <h4>VR</h4><p>Press the VR button at the bottom right. In Cardboard, aim the ring in the middle of your view and press the Cardboard button: on the floor to walk there, on a surface to leave a note, or on a button or doorway to use it. Turn by turning your head.</p>`;
@@ -2813,6 +2922,22 @@
     btn('Close', d.kind === 'model' ? -0.29 : -0.2, () => closeItemMenu());
     refreshPointersSoon();
   }
+  // In a headset the form opens in a browser tab, which ends VR.
+  function openVrBoothForm(n) {
+    const l = boothLinks.get(n);
+    if (!l) return vrToast('Add form links from a phone or computer (press the sign there).', 3200);
+    const W = 0.62;
+    const root = vrPanelBase(W, 0.42, `Booth ${n}: ${l.label}`, 'Opens in a browser tab and leaves VR');
+    const go = () => {
+      const opened = openFormTab(n);
+      closeVrPanel();
+      if (scene.is('vr-mode')) try { scene.exitVR(); } catch (e) { /* already leaving */ }
+      if (!opened) setTimeout(() => { boothFormN = n; showBoothForm(n); openSheet('#boothForm'); }, 400);
+    };
+    vrButton(root, 'Open form', 0, 0.02, W - 0.08, 0.085, go, { color: '#1f7a5a', hover: '#2aa077', charSize: 0.032 });
+    vrButton(root, 'Stay in VR', 0, -0.1, W - 0.08, 0.075, () => closeVrPanel(), { charSize: 0.028 });
+    refreshPointersSoon();
+  }
   let vrSectionText = null;
   function openVrSection(id) {
     const rec = items.get(id);
@@ -3032,7 +3157,7 @@
     const useGaze = DEVICE === 'phone';
     setGazeMode(useGaze);
     setHandRays(!useGaze);
-    ['#composer', '#detail', '#panel', '#upload', '#itemMenu', '#adjust', '#section', '#avatarSheet'].forEach((s) => { if (!$(s).hidden) closeSheet(s); });
+    ['#composer', '#detail', '#panel', '#upload', '#itemMenu', '#adjust', '#section', '#boothForm', '#avatarSheet'].forEach((s) => { if (!$(s).hidden) closeSheet(s); });
     if (useGaze) vrToast('Aim the ring and press the Cardboard button', 3500);
     else vrToast(me.muted ? 'Mic off - press A or X to talk' : 'Mic on', 2500);
   });
@@ -3094,5 +3219,5 @@
   }
   boot();
 
-  window.vsn = { me, peers, notes, items, get room() { return ROOM; } };
+  window.vsn = { me, peers, notes, items, boothLinks, booths: BOOTHS, send, get room() { return ROOM; } };
 })();

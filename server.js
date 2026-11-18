@@ -120,11 +120,12 @@ const filesDir = (slug) => path.join(roomDir(slug), 'files');
 function getRoom(slug) {
   let room = rooms.get(slug);
   if (room) return room;
-  room = { slug, clients: new Map(), notes: new Map(), items: new Map(), saveTimer: null };
+  room = { slug, clients: new Map(), notes: new Map(), items: new Map(), links: new Map(), saveTimer: null };
   try {
     const st = JSON.parse(fs.readFileSync(path.join(roomDir(slug), 'state.json'), 'utf8'));
     for (const n of st.notes || []) room.notes.set(n.id, n);
     for (const it of st.items || []) room.items.set(it.id, it);
+    for (const l of st.links || []) if (l && l.booth >= 1 && l.booth <= BOOTH_COUNT && l.url) room.links.set(l.booth, l);
   } catch (e) { /* new room */ }
   rooms.set(slug, room);
   return room;
@@ -136,7 +137,7 @@ function scheduleSave(room) {
     room.saveTimer = null;
     if (!registry.has(room.slug)) return;
     await fsp.mkdir(roomDir(room.slug), { recursive: true });
-    await writeJsonAtomic(path.join(roomDir(room.slug), 'state.json'), { notes: [...room.notes.values()], items: [...room.items.values()] });
+    await writeJsonAtomic(path.join(roomDir(room.slug), 'state.json'), { notes: [...room.notes.values()], items: [...room.items.values()], links: [...room.links.values()] });
   }, 400);
 }
 
@@ -150,6 +151,25 @@ function canManage(slug, it, key, admin) {
 function slotTaken(room, booth, slot, exceptId) {
   for (const it of room.items.values()) if (it.id !== exceptId && it.booth === booth && it.slot === slot) return true;
   return false;
+}
+
+// Booth form links: only Google Forms (docs.google.com/forms/..., forms.gle/..., forms.google.com).
+function cleanFormUrl(v) {
+  if (typeof v !== 'string') return null;
+  let t = v.trim();
+  if (!t || t.length > 1500) return null;
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(t)) t = 'https://' + t;
+  let u;
+  try { u = new URL(t); } catch (e) { return null; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  if (u.username || u.password || (u.port && u.port !== '443')) return null;
+  u.protocol = 'https:';
+  const h = u.hostname.toLowerCase();
+  const ok = h === 'forms.gle' || h === 'forms.google.com' || (h === 'docs.google.com' && /^\/(a\/[^/]+\/)?forms\//.test(u.pathname));
+  return ok && u.href.length <= 1500 ? u.href : null;
+}
+function linkFor(key, l) {
+  return { booth: l.booth, url: l.url, label: l.label, author: l.author, ts: l.ts, mine: l.authorKey === key };
 }
 
 // Section cut on a model: axis (y = horizontal, x or z = vertical), position 0-1 across the
@@ -536,6 +556,7 @@ wss.on('connection', (ws, req) => {
         room: { slug, name: reg.name, desc: reg.desc, unlisted: !!reg.unlisted, mine: !!(reg.creatorKey && reg.creatorKey === key) },
         peers: [...room.clients.values()].filter((c) => c !== ws).map(publicPeer),
         items: [...room.items.values()].map((it) => itemFor(key, slug, it)),
+        links: [...room.links.values()].map((l) => linkFor(key, l)),
         notes: [...room.notes.values()].map((n) => noteFor(key, ws.user.isAdmin, n))
       });
       broadcast(room, { type: 'peer-join', peer: publicPeer(ws) }, id);
@@ -622,6 +643,37 @@ wss.on('connection', (ws, req) => {
         if (m.cut !== undefined && it.kind === 'model') it.cut = cleanCut(m.cut);
         scheduleSave(room);
         broadcast(room, { type: 'item-update', item: { id: it.id, p: it.p, ry: it.ry, s: it.s, page: it.page, cut: it.cut || null, by: u.name } });
+        break;
+      }
+      // A Google Form link on a booth sign. Anyone can add one to a booth that has none; changing
+      // or removing it is for whoever added it, the room creator or the admin. all: every booth
+      // (room creator or admin only).
+      case 'booth-link': {
+        const reg = registry.get(slug);
+        const owner = u.isAdmin || !!(reg && reg.creatorKey && reg.creatorKey === u.key);
+        const n = Math.floor(Number(m.booth));
+        const targets = m.all === true ? Array.from({ length: BOOTH_COUNT }, (_, i) => i + 1) : [n];
+        if (m.all === true && !owner) return send(ws, { type: 'error', message: 'Only the room creator or the admin can set a link on every booth.' });
+        if (!targets.every((b) => b >= 1 && b <= BOOTH_COUNT)) return;
+        const remove = m.url == null || m.url === '';
+        const url = remove ? null : cleanFormUrl(m.url);
+        if (!remove && !url) return send(ws, { type: 'error', message: 'That is not a Google Forms link. Use the link from Send > Link in Google Forms (forms.gle/... or docs.google.com/forms/...).' });
+        const label = cleanText(m.label, 40) || 'Feedback form';
+        const changed = [];
+        for (const b of targets) {
+          const cur = room.links.get(b);
+          if (cur && !canManage(slug, cur, u.key, u.isAdmin)) {
+            if (m.all !== true) return send(ws, { type: 'error', message: 'Only the person who added this link, the room creator, or the admin can change it.' });
+            continue;
+          }
+          if (remove) { if (cur) { room.links.delete(b); changed.push({ booth: b }); } }
+          else { const l = { booth: b, url, label, author: u.name, authorKey: u.key, ts: Date.now() }; room.links.set(b, l); changed.push(l); }
+        }
+        if (!changed.length) return;
+        scheduleSave(room);
+        for (const c of room.clients.values()) {
+          send(c, { type: 'booth-links', by: u.name, byMe: c === ws, links: changed.map((l) => (l.url ? linkFor(c.user.key, l) : { booth: l.booth, url: null })) });
+        }
         break;
       }
       case 'portal-add': {
