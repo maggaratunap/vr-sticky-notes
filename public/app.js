@@ -1185,7 +1185,7 @@
         { color: '#2f6fc4', hover: '#4d8fe0', charSize: 0.05 });
       b.plaque.setAttribute('position', `${BOOTH_W / 2 - 0.45} 1.18 ${BOOTH_D - 0.12}`);
       b.plaqueText = '+ Add model or PDF';
-      // Google Form sign on a matching post on the other side of the entrance
+      // Form sign (Google or Microsoft Forms) on a matching post on the other side of the entrance
       put(boxGeo, M.steel, [-(BOOTH_W / 2 - 0.45), 0.55, BOOTH_D - 0.15], [0.04, 1.1, 0.04], null, true);
       b.group = g;
     });
@@ -1199,7 +1199,8 @@
     renderBoothLinks();
   }
 
-  // ---------------- booth form links (Google Forms) ----------------
+  // ---------------- booth form links (Google Forms and Microsoft Forms) ----------------
+  const MS_FORMS = ['forms.office.com', 'forms.cloud.microsoft', 'forms.microsoft.com', 'forms.office365.us'];
   const isFormUrl = (v) => {
     let t = String(v || '').trim();
     if (!t) return null;
@@ -1208,7 +1209,7 @@
     try { u = new URL(t); } catch (e) { return null; }
     if (!/^https?:$/.test(u.protocol) || u.username || u.password) return null;
     const h = u.hostname.toLowerCase();
-    return h === 'forms.gle' || h === 'forms.google.com' || (h === 'docs.google.com' && /^\/(a\/[^/]+\/)?forms\//.test(u.pathname)) ? 'https://' + u.href.slice(u.protocol.length + 2) : null;
+    return h === 'forms.gle' || h === 'forms.google.com' || (h === 'docs.google.com' && /^\/(a\/[^/]+\/)?forms\//.test(u.pathname)) || MS_FORMS.includes(h) ? 'https://' + u.href.slice(u.protocol.length + 2) : null;
   };
   // {booth} in a pre-filled link becomes the booth number, so one form can serve every booth.
   const formHref = (n) => { const l = boothLinks.get(n); return l ? l.url.replace(/\{booth\}|%7Bbooth%7D/gi, String(n)) : null; };
@@ -1281,7 +1282,7 @@
   $('#boothFormForm').addEventListener('submit', (e) => {
     e.preventDefault();
     const url = isFormUrl($('#bfUrl').value);
-    if (!url) { $('#bfMsg').textContent = 'That is not a Google Forms link. In Google Forms, press Send, choose the link tab and copy it (forms.gle/... or docs.google.com/forms/...).'; return; }
+    if (!url) { $('#bfMsg').textContent = 'That is not a Google Forms or Microsoft Forms link. Google Forms: press Send, choose the link tab and copy it. Microsoft Forms: press Collect responses (or Share) and copy the link.'; return; }
     const all = !$('#bfAllWrap').hidden && $('#bfAll').checked;
     if (all && [...boothLinks.keys()].some((k) => k !== boothFormN) && !confirm('Replace the form link on every booth with this one?')) return;
     send({ type: 'booth-link', booth: boothFormN, url, label: $('#bfName').value.trim(), all: all || undefined });
@@ -2742,7 +2743,7 @@
         <h4>Move</h4><p>Phone and tablet: left stick to move, right stick to look around, or turn your phone to look (the phone button at the top switches this off). <b>Run</b> switches sprinting on and off and <b>Jump</b> jumps. Computer: WASD or arrow keys, drag to look, Q / E to turn, hold Shift to sprint, Space to jump. Headset: left stick walks (click it to sprint), right stick turns (click it to jump), or point at the floor and pull the trigger. Everyone sees your avatar walk, run and jump with you.</p>
         <h4>Camera</h4><p>Tap <b>Camera</b> in the bottom bar to share your webcam. Your picture appears on a small screen above your avatar for everyone in the room, and a preview shows top left. Tap it again to stop. It is off when you join.</p>
         <h4>Talk</h4><p>Use the mic button (or A / X on a Quest controller). Voices are louder when people stand closer. A green ring shows who is talking.</p>
-        <h4>Booth forms</h4><p>Each booth can link to a Google Form, for example a feedback or peer review form. Press <b>+ Form link</b> on the post at the left of the booth entrance and paste the link from Google Forms (Send, then the link tab). Visitors press the green sign to open the form in a new tab; in a headset this leaves VR. The room creator can put one link on every booth. To know which booth each answer is about, make a pre-filled link in Google Forms with <b>{booth}</b> as the answer to a question: it is replaced with the booth number.</p>
+        <h4>Booth forms</h4><p>Each booth can link to a Google Form or a Microsoft Form, for example a feedback or peer review form. Press <b>+ Form link</b> on the post at the left of the booth entrance and paste the form's share link (Google Forms: Send, then the link tab; Microsoft Forms: Collect responses, then Copy link). Visitors press the green sign to open the form in a new tab; in a headset this leaves VR. The room creator can put one link on every booth. To know which booth each answer is about, make a pre-filled link (both Google Forms and Microsoft Forms can) with <b>{booth}</b> as the answer to a text question: it is replaced with the booth number.</p>
         <h4>Fly</h4><p>Press <b>Fly</b> to float freely: you move in the direction you look, including up and down. Computer: WASD, Space to rise, Shift to sink, F to toggle. Phone: the left stick flies where you look, hold the arrow buttons to rise or sink. Headset: left stick flies where you look, right stick up / down rises and sinks, B or Y toggles. Cardboard: turn Fly on before entering VR, then aim at the sky and press the button. On a computer or in VR, click or aim at the floor to land; turning Fly off always brings you down.</p>
         <h4>Room shortcuts</h4><p>In <b>Objects</b>, choose <b>Add room shortcut</b> to create a new room (or link an existing one). A doorway appears in front of you. Go through it by tapping, clicking, or pointing at it. You stay in VR when you switch rooms.</p>
         <h4>VR</h4><p>Press the VR button at the bottom right. In Cardboard, aim the ring in the middle of your view and press the Cardboard button: on the floor to walk there, on a surface to leave a note, or on a button or doorway to use it. Turn by turning your head.</p>`;

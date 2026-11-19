@@ -153,7 +153,9 @@ function slotTaken(room, booth, slot, exceptId) {
   return false;
 }
 
-// Booth form links: only Google Forms (docs.google.com/forms/..., forms.gle/..., forms.google.com).
+// Booth form links: only Google Forms (docs.google.com/forms/..., forms.gle/..., forms.google.com)
+// and Microsoft Forms (forms.office.com, forms.cloud.microsoft, forms.microsoft.com, forms.office365.us).
+const MS_FORMS = ['forms.office.com', 'forms.cloud.microsoft', 'forms.microsoft.com', 'forms.office365.us'];
 function cleanFormUrl(v) {
   if (typeof v !== 'string') return null;
   let t = v.trim();
@@ -165,7 +167,7 @@ function cleanFormUrl(v) {
   if (u.username || u.password || (u.port && u.port !== '443')) return null;
   u.protocol = 'https:';
   const h = u.hostname.toLowerCase();
-  const ok = h === 'forms.gle' || h === 'forms.google.com' || (h === 'docs.google.com' && /^\/(a\/[^/]+\/)?forms\//.test(u.pathname));
+  const ok = h === 'forms.gle' || h === 'forms.google.com' || (h === 'docs.google.com' && /^\/(a\/[^/]+\/)?forms\//.test(u.pathname)) || MS_FORMS.includes(h);
   return ok && u.href.length <= 1500 ? u.href : null;
 }
 function linkFor(key, l) {
@@ -645,7 +647,7 @@ wss.on('connection', (ws, req) => {
         broadcast(room, { type: 'item-update', item: { id: it.id, p: it.p, ry: it.ry, s: it.s, page: it.page, cut: it.cut || null, by: u.name } });
         break;
       }
-      // A Google Form link on a booth sign. Anyone can add one to a booth that has none; changing
+      // A Google or Microsoft Forms link on a booth sign. Anyone can add one to a booth that has none; changing
       // or removing it is for whoever added it, the room creator or the admin. all: every booth
       // (room creator or admin only).
       case 'booth-link': {
@@ -657,7 +659,7 @@ wss.on('connection', (ws, req) => {
         if (!targets.every((b) => b >= 1 && b <= BOOTH_COUNT)) return;
         const remove = m.url == null || m.url === '';
         const url = remove ? null : cleanFormUrl(m.url);
-        if (!remove && !url) return send(ws, { type: 'error', message: 'That is not a Google Forms link. Use the link from Send > Link in Google Forms (forms.gle/... or docs.google.com/forms/...).' });
+        if (!remove && !url) return send(ws, { type: 'error', message: 'That is not a Google Forms or Microsoft Forms link. Copy the share link from the form (forms.gle/..., docs.google.com/forms/..., forms.office.com/... or forms.cloud.microsoft/...).' });
         const label = cleanText(m.label, 40) || 'Feedback form';
         const changed = [];
         for (const b of targets) {

@@ -293,7 +293,7 @@
   </div>
 </div>
 
-<!-- Google Form link on a booth -->
+<!-- Google Forms or Microsoft Forms link on a booth -->
 <div id="boothForm" class="overlay sheet-wrap" hidden>
   <form class="sheet glass" id="boothFormForm" novalidate>
     <div class="sheet-head"><div class="titles"><b id="bfTitle">Booth form</b><span id="bfMeta" class="fine"></span></div><button type="button" class="x" data-close aria-label="Close">&times;</button></div>
@@ -304,13 +304,16 @@
       <p id="bfHint" class="fine"></p>
     </div>
     <div id="bfEditBox" hidden>
-      <label class="field"><span class="label">Google Forms link</span><input id="bfUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://forms.gle/..." maxlength="1500"></label>
+      <label class="field"><span class="label">Google Forms or Microsoft Forms link</span><input id="bfUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://forms.gle/... or https://forms.office.com/..." maxlength="1500"></label>
       <label class="field"><span class="label">Sign text (optional)</span><input id="bfName" type="text" maxlength="40" placeholder="Feedback form"></label>
       <label class="check" id="bfAllWrap"><input type="checkbox" id="bfAll"> Put this link on all 15 booths</label>
       <p id="bfMsg" class="fine" role="status"></p>
       <details class="fine">
         <summary>One form for every booth</summary>
-        <p>In Google Forms, open the three-dot menu and choose <i>Get pre-filled link</i>. Type <b>{booth}</b> as the answer to a question such as "Which booth?", then copy the link. When someone opens the form from a booth, that answer is filled in with the booth number.</p>
+        <p>Add a text question such as "Which booth?" to your form, then make a pre-filled link with <b>{booth}</b> as its answer:</p>
+        <ul><li><b>Google Forms:</b> three-dot menu, <i>Get pre-filled link</i>, type {booth}, then <i>Get link</i>.</li>
+        <li><b>Microsoft Forms:</b> three-dot menu, <i>Get pre-filled URL</i>, turn it on, type {booth}, then <i>Get prefilled link</i>.</li></ul>
+        <p>When someone opens the form from a booth, that answer is filled in with the booth number.</p>
       </details>
       <div class="actions"><button type="button" class="btn" id="bfCancel">Cancel</button><button type="submit" class="btn primary">Save link</button></div>
     </div>
