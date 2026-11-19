@@ -885,14 +885,15 @@
   // plinth and two PDFs on stands. The middle of the hall is left open.
   const HALL = { half: 24, wallH: 12 };
   const C3D = { concrete: '#d4d8db', inlay: '#c7ccd0', plaster: '#f2f3f1', panel: '#f8f9f8', steel: '#8a929c', graphite: '#262b33', felt: '#dde1e4', blueprint: '#2f6fc4' };
-  const BOOTH_W = 6, BOOTH_D = 4.2, PLINTH = { r: 1.05, h: 0.25, z: 2.55 };
+  // Booths fill the bays between the wall columns (8 m apart); the corners limit the depth.
+  const BOOTH_W = 7.2, BOOTH_D = 4.25, BOOTH_H = 3.4, SIDE_H = 2.8, PLINTH = { r: 1.25, h: 0.25, z: 2.6 };
   const BOOTHS = [];
   [16, 8, 0, -8, -16].forEach((z) => BOOTHS.push({ n: BOOTHS.length + 1, x: -HALL.half + 0.12, z, ry: 90 }));
   [-16, -8, 0, 8, 16].forEach((x) => BOOTHS.push({ n: BOOTHS.length + 1, x, z: -HALL.half + 0.12, ry: 0 }));
   [-16, -8, 0, 8, 16].forEach((z) => BOOTHS.push({ n: BOOTHS.length + 1, x: HALL.half - 0.12, z, ry: -90 }));
   const SLOT = {
-    pdf1: { x: -1.8, z: 0.75, ry: 12, label: 'PDF 1' },
-    pdf2: { x: 1.8, z: 0.75, ry: -12, label: 'PDF 2' },
+    pdf1: { x: -2.25, z: 0.8, ry: 12, label: 'PDF 1' },
+    pdf2: { x: 2.25, z: 0.8, ry: -12, label: 'PDF 2' },
     model: { x: 0, z: PLINTH.z, y: PLINTH.h, ry: 0, label: 'Model' }
   };
 
@@ -934,7 +935,7 @@
   function fitPatchFor(rec) {
     if (rec.data.kind !== 'model' || !rec.size) return null;
     const foot = Math.max(rec.size.x, rec.size.z), hgt = rec.size.y;
-    const s = Math.min(2.0 / foot, 2.6 / Math.max(hgt, 0.01));
+    const s = Math.min(2.4 / foot, 3.0 / Math.max(hgt, 0.01));
     if (Math.abs(s - (rec.data.s || 1)) < 0.001) return null;
     return +s.toPrecision(4);
   }
@@ -1148,6 +1149,8 @@
     const plinthGeo = new THREE.CylinderGeometry(PLINTH.r, PLINTH.r, PLINTH.h, 40);
     const ringGeo = new THREE.TorusGeometry(PLINTH.r, 0.016, 4, 48);
     const aoM = L.decal(ao, 0.9);
+    // Side walls of every booth: one merged mesh you can pin sticky notes on (one draw call).
+    const sideGroup = new THREE.Group();
     BOOTHS.forEach((b, i) => {
       const g = el('a-entity', { position: `${b.x} 0 ${b.z}`, rotation: `0 ${b.ry} 0`, class: 'booth' }, root);
       g.dataset.booth = String(b.n);
@@ -1155,21 +1158,24 @@
       gd.position.set(b.x, 0, b.z); gd.rotation.y = THREE.MathUtils.degToRad(b.ry);
       deco.add(gd);
       const put = (geo, mat, pos, scale, rot, cast, receive) => add(geo, mat, pos, scale, rot, cast, receive, gd);
-      surface(g, '0 1.5 0.05', BOOTH_W, 3.0, 0.1, M.boothWall, 'clickable pinnable', true);
-      put(boxGeo, M.graphite, [0, 3.32, 0.1], [BOOTH_W + 0.2, 0.5, 0.18], null, true);
-      put(boxGeo, M.blue, [0, 3.06, 0.2], [BOOTH_W + 0.2, 0.035, 0.012]);
-      b.label = txt(g, '0 3.32 0.2', `BOOTH ${b.n}`, BOOTH_W - 0.6, '#ffffff', 30);
+      surface(g, `0 ${BOOTH_H / 2} 0.05`, BOOTH_W, BOOTH_H, 0.1, M.boothWall, 'clickable pinnable', true);
+      put(boxGeo, M.graphite, [0, BOOTH_H + 0.32, 0.1], [BOOTH_W + 0.2, 0.5, 0.18], null, true);
+      put(boxGeo, M.blue, [0, BOOTH_H + 0.06, 0.2], [BOOTH_W + 0.2, 0.035, 0.012]);
+      b.label = txt(g, `0 ${BOOTH_H + 0.32} 0.2`, `BOOTH ${b.n}`, BOOTH_W - 0.6, '#ffffff', 30);
       b.labelText = `BOOTH ${b.n}`;
-      for (const sx of [-BOOTH_W / 2, BOOTH_W / 2]) put(boxGeo, M.side, [sx, 1.25, BOOTH_D / 2], [0.05, 2.5, BOOTH_D], null, true, true);
+      const gs = new THREE.Group();
+      gs.position.copy(gd.position); gs.rotation.copy(gd.rotation);
+      sideGroup.add(gs);
+      for (const sx of [-BOOTH_W / 2, BOOTH_W / 2]) add(boxGeo, M.side, [sx, SIDE_H / 2, BOOTH_D / 2], [0.06, SIDE_H, BOOTH_D], null, true, true, gs);
       put(planeGeo, M.oak, [0, 0.01, BOOTH_D / 2], [BOOTH_W - 0.05, BOOTH_D, 1], [-Math.PI / 2, 0, 0], false, true);
       put(planeGeo, aoM, [0, 0.014, 0.4], [BOOTH_W - 0.1, 0.6, 1], [-Math.PI / 2, 0, 0]);
       // plinth for the model (you can step onto it)
       const pl = surface(g, `0 ${PLINTH.h / 2} ${PLINTH.z}`, 0, 0, 0, M.white, 'clickable floor', true, plinthGeo);
       pl.addEventListener('click', onFloorClick);
       put(ringGeo, M.blue, [0, PLINTH.h, PLINTH.z], null, [Math.PI / 2, 0, 0]);
-      floorDecal(L.T.contact(), 0, PLINTH.z, 3, 3, 0, 0.6, 0.013, gd);
-      [-2, 0, 2].forEach((tx, k) => {
-        tmp.position.set(tx, 3.0, 0.38); tmp.rotation.set(-0.5, 0, 0); tmp.updateMatrix();
+      floorDecal(L.T.contact(), 0, PLINTH.z, 3.5, 3.5, 0, 0.6, 0.013, gd);
+      [-2.4, 0, 2.4].forEach((tx, k) => {
+        tmp.position.set(tx, BOOTH_H, 0.38); tmp.rotation.set(-0.5, 0, 0); tmp.updateMatrix();
         const m4 = new THREE.Matrix4().multiplyMatrices(new THREE.Matrix4().compose(gd.position, gd.quaternion, new THREE.Vector3(1, 1, 1)), tmp.matrix);
         trackHeads.setMatrixAt(i * 3 + k, m4);
       });
@@ -1186,6 +1192,9 @@
     trackHeads.instanceMatrix.needsUpdate = true;
     deco.add(trackHeads);
     L.mergeStatic(deco);
+    L.mergeStatic(sideGroup);
+    const sides = el('a-entity', { class: 'clickable pinnable booth-sides' }, root);
+    sides.setObject3D('mesh', sideGroup); // after merging, so every mesh knows its entity
     updateBoothLabels();
     renderBoothLinks();
   }
